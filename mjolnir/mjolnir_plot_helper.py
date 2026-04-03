@@ -51,7 +51,7 @@ def make_plot(args, save=True, axis=None):
     if args.no_pressure_log:
         plog = False
 
-    valid = ['uver', 'ulonver', 'vver', 'wver', 'wlonver', 'wprof', 'Tver', 'Tlonver', 'Tulev', 'PTver', 'PTlonver', 'ulev', 'PVver', 'PVlev',
+    valid = ['uver','uver_abs','ulonver', 'vver', 'wver', 'wlonver', 'wprof', 'Tver', 'Tlonver', 'Tulev', 'PTver', 'PTlonver', 'ulev', 'PVver', 'PVlev',
              'TP', 'RVlev', 'cons', 'stream', 'pause', 'tracer', 'PTP', 'regrid', 'KE',
              'SR', 'uprof', 'cfl', 'bvprof', 'TSfluxprof', 'Tsurf', 'insol', 'massf', 'pause_rg', 'DGfluxprof', 'qheat',
              'DGfutprof', 'DGfdtprof', 'mustar', 'DGfuptot', 'DGfdowntot', 'DGfnet', 'DGqheat',  # alf stuff
@@ -62,7 +62,7 @@ def make_plot(args, save=True, axis=None):
              'Etotlev','AngMomlev', 'Entropylev','Kdiffprof', 'RiB','BLheight',
              'RTbalance','Riprof','RTbalanceTS','tradprof','taulwprof','Fsens', 'Kdiffver']
 
-    rg_needed = ['Tver', 'Tlonver', 'uver', 'ulonver', 'vver', 'wver', 'wlonver', 'Tulev', 'PTver', 'PTlonver', 'ulev', 'PVver', 'PVlev',
+    rg_needed = ['Tver', 'Tlonver', 'uver', 'uver_abs', 'ulonver', 'vver', 'wver', 'wlonver', 'Tulev', 'PTver', 'PTlonver', 'ulev', 'PVver', 'PVlev',
                  'RVlev', 'stream', 'tracer', 'Tsurf', 'insol', 'massf', 'pause_rg',
                  'mustar', 'qheat',
                  'TSfuptot', 'TSfdowntot', 'TSfnet', 'TSqheat',
@@ -154,6 +154,34 @@ def make_plot(args, save=True, axis=None):
              'cmap': 'viridis', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'plog': plog}
         sigmaref = ham.Get_Prange(input, grid, rg, args, xtype='lat', use_p=use_p)
         pfile = call_plot('uver',ham.vertical_lat,input, grid, output, rg, sigmaref, z, slice=args.slice, use_p=use_p, csp=1000, clevs=args.clevels, save=save, axis=axis)
+        plots_created.append(pfile)
+        
+    if 'uver_abs' in pview or 'all' in pview:
+        rg.load(['U'])
+
+        z = {
+            'value': np.abs(rg.U),
+            'label': r'|Velocity| (m s$^{-1}$)',
+            'name': 'u_abs',
+            'cmap': 'magma',
+            'lat': rg.Latitude,
+            'lon': rg.Longitude,
+            'mt': maketable,
+            'plog': plog
+        }
+
+        sigmaref = ham.Get_Prange(
+            input, grid, rg, args,
+            xtype='lat', use_p=use_p
+        )
+
+        pfile = call_plot(
+            'uver_abs', ham.vertical_lat,
+            input, grid, output, rg, sigmaref, z,
+            slice=args.slice, use_p=use_p, csp=1000,
+            clevs=args.clevels, save=save, axis=axis
+        )
+
         plots_created.append(pfile)
 
     if 'ulonver' in pview or 'all' in pview:
@@ -336,9 +364,9 @@ def make_plot(args, save=True, axis=None):
         # PR_LV - Pressure level (Pa)
         rg.load(['Temperature','U','V'])
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         z = {'value': rg.Temperature, 'label': r'Temperature (K)', 'name': 'temperature-uv',
              'cmap': 'magma', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
         pfile = call_plot('Tulev',ham.horizontal_lev,input, grid, output, rg, PR_LV, z, wind_vectors=True, use_p=use_p, clevs=args.clevels, save=save, axis=axis)
@@ -347,9 +375,9 @@ def make_plot(args, save=True, axis=None):
     if 'ulev' in pview or 'all' in pview:
         rg.load(['U','V'])
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         z = {'value': rg.U, 'label': r'Zonal Velocity (m s$^{-1}$)', 'name': 'u',
              'cmap': 'viridis', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
         pfile = call_plot('ulev-U',ham.horizontal_lev,input, grid, output, rg, PR_LV, z, wind_vectors=True, use_p=use_p, clevs=args.clevels, save=save, axis=axis)
@@ -362,9 +390,9 @@ def make_plot(args, save=True, axis=None):
     if 'PVlev' in pview or 'all' in pview:
         rg.load(['PV','U','V'])
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         z = {'value': rg.PV, 'label': r'Potential Vorticity (K m$^2$ kg$^{-1}$ s$^{-1}$)',
              'name': 'pot_vort', 'cmap': 'viridis', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
         pfile = call_plot('PVlev',ham.horizontal_lev,input, grid, output, rg, PR_LV, z, wind_vectors=True, use_p=use_p, clevs=args.clevels, save=save, axis=axis)
@@ -373,9 +401,9 @@ def make_plot(args, save=True, axis=None):
     if 'RVlev' in pview or 'all' in pview:
         rg.load(['RVw','U','V'])
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         z = {'value': rg.RVw, 'label': r'Relative Vorticity (s$^{-1}$)',
              'name': 'rela_vort', 'cmap': 'viridis', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
         pfile = call_plot('RVlev',ham.horizontal_lev,input, grid, output, rg, PR_LV, z, wind_vectors=True, use_p=use_p, clevs=args.clevels, save=save, axis=axis)
@@ -384,9 +412,9 @@ def make_plot(args, save=True, axis=None):
     if ('tracer' in pview or 'all' in pview) and input.chemistry:
         rg.load(['ch4','co','h2o','co2','nh3'])
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         z = {'value': np.log10(rg.ch4), 'label': r'Log(mixing ratio)',
              'name': 'chem-ch4-uv1', 'cmap': 'magma', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
         pfile = call_plot('tracer-ch4',ham.horizontal_lev,input, grid, output, rg, PR_LV, z, wind_vectors=True, use_p=use_p, clevs=args.clevels, save=save, axis=axis)
@@ -442,9 +470,9 @@ def make_plot(args, save=True, axis=None):
         # Averaged temperature and wind field (longitude vs latitude)
         # PR_LV - Pressure level (Pa)
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
 
         rg.load(['flw_up'])
         fup = rg.flw_up
@@ -457,9 +485,9 @@ def make_plot(args, save=True, axis=None):
         # Averaged temperature and wind field (longitude vs latitude)
         # PR_LV - Pressure level (Pa)
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
 
         rg.load(['f_up_tot'])
         fup = rg.f_up_tot
@@ -473,9 +501,9 @@ def make_plot(args, save=True, axis=None):
         # Averaged temperature and wind field (longitude vs latitude)
         # PR_LV - Pressure level (Pa)
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
 
         rg.load(['flw_dn','fsw_dn'])
         fdn = rg.flw_dn + rg.fsw_dn
@@ -489,9 +517,9 @@ def make_plot(args, save=True, axis=None):
         # Averaged temperature and wind field (longitude vs latitude)
         # PR_LV - Pressure level (Pa)
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         rg.load(['f_down_tot'])
         fdn = rg.f_down_tot
         z = {'value': fdn, 'label': r'Two Streams Total downward flux (W m^-2)', 'name': 'TSfdowntot',
@@ -504,9 +532,9 @@ def make_plot(args, save=True, axis=None):
         # Averaged temperature and wind field (longitude vs latitude)
         # PR_LV - Pressure level (Pa)
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         rg.load(['DGf_net'])
         z = {'value': rg.DGf_net, 'label': r'Double Gray Total net flux (W m^-2)', 'name': 'DGfnet',
              'cmap': 'magma', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
@@ -517,9 +545,9 @@ def make_plot(args, save=True, axis=None):
         # Averaged temperature and wind field (longitude vs latitude)
         # PR_LV - Pressure level (Pa)
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         rg.load(['TSf_net'])
         z = {'value': rg.TSf_net, 'label': r'Two Streams Total net flux (W m^-2)', 'name': 'TSfnet',
              'cmap': 'magma', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
@@ -530,9 +558,9 @@ def make_plot(args, save=True, axis=None):
         # Averaged temperature and wind field (longitude vs latitude)
         # PR_LV - Pressure level (Pa)
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         z = {'value': rg.qheat, 'label': r'Q Heat (W m^-3)', 'name': 'qheat',
              'cmap': 'magma', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
         pfile = call_plot('qheat',ham.horizontal_lev,input, grid, output, rg, PR_LV, z, wind_vectors=True, use_p=use_p, clevs=args.clevels, save=save, axis=axis)
@@ -542,9 +570,9 @@ def make_plot(args, save=True, axis=None):
         # Averaged temperature and wind field (longitude vs latitude)
         # PR_LV - Pressure level (Pa)
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         z = {'value': rg.DGqheat, 'label': r'Double Gray Q Heat (W m^-3)', 'name': 'DGqheat',
              'cmap': 'magma', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
         pfile = call_plot('DGqheat',ham.horizontal_lev,input, grid, output, rg, PR_LV, z, wind_vectors=True, use_p=use_p, clevs=args.clevels, save=save, axis=axis)
@@ -554,9 +582,9 @@ def make_plot(args, save=True, axis=None):
         # Averaged temperature and wind field (longitude vs latitude)
         # PR_LV - Pressure level (Pa)
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         z = {'value': rg.TSqheat, 'label': r'Q Heat (W m^-3)', 'name': 'TSqheat',
              'cmap': 'magma', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
         pfile = call_plot('TSqheat',ham.horizontal_lev,input, grid, output, rg, PR_LV, z, wind_vectors=True, use_p=use_p, clevs=args.clevels, save=save, axis=axis)
@@ -573,9 +601,9 @@ def make_plot(args, save=True, axis=None):
         # Averaged temperature and wind field (longitude vs latitude)
         # PR_LV - Pressure level (Pa)
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         z = {'value': rg.Etotal, 'label': r'Total energy (J m$^{-3}$)', 'name': 'Etotal',
              'cmap': 'magma', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
         pfile = call_plot('Etotlev',ham.horizontal_lev,input, grid, output, rg, PR_LV, z, wind_vectors=False, use_p=use_p, clevs=args.clevels, save=save, axis=axis)
@@ -585,9 +613,9 @@ def make_plot(args, save=True, axis=None):
         # Averaged temperature and wind field (longitude vs latitude)
         # PR_LV - Pressure level (Pa)
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         z = {'value': rg.Entropy, 'label': r'Entropy (J K$^{-1}$ m$^{-3}$)', 'name': 'Entropy',
              'cmap': 'magma', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
         pfile = call_plot('Entropylev',ham.horizontal_lev,input, grid, output, rg, PR_LV, z, wind_vectors=False, use_p=use_p, clevs=args.clevels, save=save, axis=axis)
@@ -597,9 +625,9 @@ def make_plot(args, save=True, axis=None):
         # Averaged temperature and wind field (longitude vs latitude)
         # PR_LV - Pressure level (Pa)
         if use_p:
-            PR_LV = np.float(args.horizontal_lev[0]) * 100
+            PR_LV = float(args.horizontal_lev[0]) * 100
         else:
-            PR_LV = np.float(args.horizontal_lev[0]) * 1000
+            PR_LV = float(args.horizontal_lev[0]) * 1000
         z = {'value': rg.AngMomz, 'label': r'Axial Angular Momentum (kg m$^{-1}$ s$^{-1}$)', 'name': 'AngMomz',
              'cmap': 'magma', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'llswap': args.latlonswap}
         pfile = call_plot('AngMomlev',ham.horizontal_lev,input, grid, output, rg, PR_LV, z, wind_vectors=False, use_p=use_p, clevs=args.clevels, save=save, axis=axis)
@@ -846,7 +874,7 @@ def make_plot(args, save=True, axis=None):
 
     if 'KE' in pview:  # RD: needs some work!
         output.load_reshape(grid,['Mh','Wh','Rho'])
-        PR_LV = np.float(args.horizontal_lev[0]) * 100  # not actually used here
+        PR_LV = float(args.horizontal_lev[0]) * 100  # not actually used here
         ham.KE_spect(input, grid, output, PR_LV, coord=args.coordinate_sys[0], lmax_adjust=args.lmax_adjust[0])
 
     if 'SR' in pview:

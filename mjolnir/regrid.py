@@ -8,7 +8,7 @@ import hamarr as ham
 import sys
 import argparse
 import h5py
-from imp import reload
+from importlib import reload
 reload(ham)
 import time
 import subprocess as spr
