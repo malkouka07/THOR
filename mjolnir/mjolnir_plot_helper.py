@@ -109,8 +109,24 @@ def make_plot(args, save=True, axis=None):
         ham.regrid(resultsf, simulation_ID, ntsi, nts, pressure_vert=use_p, pgrid_ref=args.pgrid_ref[0])
         exit()
 
+    time_only_rg_plots = {
+        'uver', 'uver_abs', 'ulonver', 'vver', 'wver',
+        'wlonver', 'Tver', 'Tlonver', 'PTver', 'PTlonver'
+    }
+    stream_rg_plots = {
+        'uver', 'uver_abs', 'ulonver', 'vver',
+        'wver', 'wlonver', 'Tver', 'Tlonver'
+    }
+    output_mode = 'full'
+    rg_mode = 'vds'
+    if pview and set(pview).issubset(time_only_rg_plots):
+        output_mode = 'time_only'
+    if pview and set(pview).issubset(stream_rg_plots):
+        rg_mode = 'stream'
+
     outall = ham.GetOutput(resultsf, simulation_ID, ntsi, nts, openrg=openrg,
-                           pressure_vert=use_p, pgrid_ref=args.pgrid_ref[0])
+                           pressure_vert=use_p, pgrid_ref=args.pgrid_ref[0],
+                           output_mode=output_mode, rg_mode=rg_mode)
 
     ##########
     # Planet #
@@ -149,7 +165,6 @@ def make_plot(args, save=True, axis=None):
     plots_created = []
     # --- Vertical plot types-------------------------------
     if 'uver' in pview or 'all' in pview:
-        rg.load(['U'])  #load these arrays into memory
         z = {'value': rg.U, 'label': r'Velocity (m s$^{-1}$)', 'name': 'u',
              'cmap': 'viridis', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'plog': plog}
         sigmaref = ham.Get_Prange(input, grid, rg, args, xtype='lat', use_p=use_p)
@@ -157,10 +172,9 @@ def make_plot(args, save=True, axis=None):
         plots_created.append(pfile)
         
     if 'uver_abs' in pview or 'all' in pview:
-        rg.load(['U'])
-
         z = {
-            'value': np.abs(rg.U),
+            'value': rg.U,
+            'post_transform': 'abs',
             'label': r'|Velocity| (m s$^{-1}$)',
             'name': 'u_abs',
             'cmap': 'magma',
@@ -185,7 +199,6 @@ def make_plot(args, save=True, axis=None):
         plots_created.append(pfile)
 
     if 'ulonver' in pview or 'all' in pview:
-        rg.load(['U'])
         z = {'value': rg.U, 'label': r'Velocity (m s$^{-1}$)', 'name': 'u',
              'cmap': 'viridis', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'plog': plog}
         sigmaref = ham.Get_Prange(input, grid, rg, args, xtype='lat', use_p=use_p)
@@ -193,7 +206,6 @@ def make_plot(args, save=True, axis=None):
         plots_created.append(pfile)
 
     if 'vver' in pview or 'all' in pview:
-        rg.load(['V'])
         z = {'value': rg.V, 'label': r'Velocity (m s$^{-1}$)', 'name': 'v',
              'cmap': 'viridis', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'plog': plog}
         sigmaref = ham.Get_Prange(input, grid, rg, args, xtype='lat', use_p=use_p)
@@ -201,7 +213,6 @@ def make_plot(args, save=True, axis=None):
         plots_created.append(pfile)
 
     if 'wver' in pview or 'all' in pview:
-        rg.load(['W'])
         z = {'value': rg.W, 'label': r'Velocity (m s$^{-1}$)', 'name': 'w',
              'cmap': 'viridis', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'plog': plog}
         sigmaref = ham.Get_Prange(input, grid, rg, args, xtype='lat', use_p=use_p)
@@ -209,7 +220,6 @@ def make_plot(args, save=True, axis=None):
         plots_created.append(pfile)
 
     if 'wlonver' in pview or 'all' in pview:
-        rg.load(['W'])
         z = {'value': rg.W, 'label': r'Velocity (m s$^{-1}$)', 'name': 'w',
              'cmap': 'viridis', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'plog': plog}
         sigmaref = ham.Get_Prange(input, grid, rg, args, xtype='lat', use_p=use_p)
@@ -217,7 +227,6 @@ def make_plot(args, save=True, axis=None):
         plots_created.append(pfile)
 
     if 'Tver' in pview or 'all' in pview:
-        rg.load(['Temperature'])
         z = {'value': rg.Temperature, 'label': r'Temperature (K)', 'name': 'temperature',
              'cmap': 'magma', 'lat': rg.Latitude, 'lon': rg.Longitude, 'mt': maketable, 'plog': plog}
         sigmaref = ham.Get_Prange(input, grid, rg, args, xtype='lat', use_p=use_p)

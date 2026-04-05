@@ -23,15 +23,38 @@ import pdb
 import pathlib
 import psutil
 
-try:
-    import pycuda.driver as cuda
-    import pycuda.autoinit
-    from pycuda.compiler import SourceModule
-    import pycuda.gpuarray as gpuarray
+cuda = None
+gpuarray = None
+SourceModule = None
+pycuda_autoinit = None
+regrid_tools = None
+has_pycuda = False
+
+
+def ensure_pycuda():
+    global cuda, gpuarray, SourceModule
+    global pycuda_autoinit, regrid_tools, has_pycuda
+
+    if regrid_tools is not None:
+        return regrid_tools
+
+    try:
+        import pycuda.driver as _cuda
+        import pycuda.autoinit as _pycuda_autoinit
+        from pycuda.compiler import SourceModule as _SourceModule
+        import pycuda.gpuarray as _gpuarray
+    except ImportError as exc:
+        raise RuntimeError(
+            "PyCUDA is required for regridding operations but is not available."
+        ) from exc
+
+    cuda = _cuda
+    gpuarray = _gpuarray
+    SourceModule = _SourceModule
+    pycuda_autoinit = _pycuda_autoinit
     has_pycuda = True
-except ImportError as e:
-    print(e)
-    has_pycuda = False
+    regrid_tools = _build_regrid_tools()
+    return regrid_tools
 
 plt.rcParams['image.cmap'] = 'magma'
 # plt.rcParams['font.family'] = 'sans-serif'
@@ -223,7 +246,7 @@ class output_new:
         for t in np.arange(ntsi - 1, nts, stride):
             fileh5 = resultsf + '/esp_output_' + simID + '_' + str(t + 1) + '.h5'
             if os.path.exists(fileh5):
-                openh5 = h5py.File(fileh5, 'r+')
+                openh5 = h5py.File(fileh5, 'r')
             else:
                 raise IOError(fileh5 + ' not found!')
 
@@ -297,7 +320,8 @@ class output_new:
 
             #shove source reference into layout
             for key in outputs.keys():
-                getattr(self, outputs[key]+'_lo')[:,t-ntsi+1] = h5py.VirtualSource(openh5[key])
+                source = h5py.VirtualSource(fileh5, key, shape=openh5[key].shape)
+                getattr(self, outputs[key]+'_lo')[:,t-ntsi+1] = source
 
             # 1-D arrays, unlikely to overflow memory
             self.time[t-ntsi+1] = openh5['simulation_time'][0] / 86400
@@ -391,6 +415,89 @@ class output_new:
         self.closeVDS()
 
 
+class output_time_only:
+    def __init__(self, resultsf, simID, ntsi, nts, stride=1):
+        self.ntsi = ntsi
+        self.nts = nts
+        self.time = np.zeros(nts - ntsi + 1)
+        self.nstep = np.zeros(nts - ntsi + 1)
+
+        for t in np.arange(ntsi - 1, nts, stride):
+            fileh5 = resultsf + '/esp_output_' + simID + '_' + str(t + 1) + '.h5'
+            if not os.path.exists(fileh5):
+                raise IOError(fileh5 + ' not found!')
+
+            with h5py.File(fileh5, 'r') as openh5:
+                self.time[t - ntsi + 1] = openh5['simulation_time'][0] / 86400
+                self.nstep[t - ntsi + 1] = openh5['nstep'][0]
+
+    def closeVDS(self):
+        return None
+
+
+class LazyRegridSeries:
+    def __init__(self, file_paths, dataset_name, frame_shape, dtype):
+        self.file_paths = list(file_paths)
+        self.dataset_name = dataset_name
+        self.frame_shape = tuple(frame_shape)
+        self.dtype = np.dtype(dtype)
+        self.shape = self.frame_shape + (len(self.file_paths),)
+        self.ndim = len(self.shape)
+
+    def _normalize_key(self, key):
+        if key is Ellipsis:
+            key = ()
+        if not isinstance(key, tuple):
+            key = (key,)
+        key = list(key)
+        while len(key) < self.ndim:
+            key.append(slice(None))
+        if len(key) != self.ndim:
+            raise IndexError("Invalid index for LazyRegridSeries")
+        return tuple(key)
+
+    def _time_indices(self, time_key):
+        if isinstance(time_key, slice):
+            start, stop, step = time_key.indices(len(self.file_paths))
+            if step != 1:
+                raise ValueError("LazyRegridSeries only supports unit time strides")
+            return list(range(start, stop)), False
+        if isinstance(time_key, (int, np.integer)):
+            idx = int(time_key)
+            if idx < 0:
+                idx += len(self.file_paths)
+            return [idx], True
+        if isinstance(time_key, (list, tuple, np.ndarray)):
+            return [int(i) for i in time_key], False
+        raise TypeError(f"Unsupported time index type: {type(time_key)}")
+
+    def __getitem__(self, key):
+        key = self._normalize_key(key)
+        spatial_key = key[:-1]
+        time_indices, squeeze_time = self._time_indices(key[-1])
+
+        chunks = []
+        for idx in time_indices:
+            path = self.file_paths[idx]
+            try:
+                with h5py.File(path, 'r') as openh5:
+                    arr = np.asarray(openh5[self.dataset_name][spatial_key])
+            except Exception as exc:
+                raise OSError(
+                    f'Failed to read regrid dataset "{self.dataset_name}" from "{path}"'
+                ) from exc
+            chunks.append(arr)
+
+        if squeeze_time:
+            return chunks[0]
+
+        if not chunks:
+            empty_shape = np.empty(self.frame_shape, dtype=self.dtype)[spatial_key].shape + (0,)
+            return np.empty(empty_shape, dtype=self.dtype)
+
+        return np.stack(chunks, axis=-1)
+
+
 class rg_out_new:
     def __init__(self, resultsf, simID, ntsi, nts, input, grid, pressure_vert=True, pgrid_ref='auto'):
         RT = False
@@ -412,6 +519,7 @@ class rg_out_new:
         #some basic info
         self.ntsi = ntsi
         self.nts = nts
+        dataset_keys = []
         # Read model results
         for t in np.arange(ntsi - 1, nts):
             if pressure_vert == True:
@@ -424,13 +532,15 @@ class rg_out_new:
                 fileh5 = resultsf + '/regrid_height_' + simID + '_' + str(t + 1)
             fileh5 += '.h5'
             if os.path.exists(fileh5):
-                openh5 = h5py.File(fileh5,'r+')
+                openh5 = h5py.File(fileh5,'r')
             else:
                 print(fileh5 + ' not found, regridding now with default settings...')
                 regrid(resultsf, simID, ntsi, nts, pgrid_ref=pgrid_ref)
-                openh5 = h5py.File(fileh5,'r+')
+                openh5 = h5py.File(fileh5,'r')
 
             for key in openh5.keys():
+                if t == ntsi - 1:
+                    dataset_keys.append(key)
                 if t == ntsi - 1:  #set up VDS layout shape
                     if openh5[key].ndim == 1:
                         setattr(self,key,openh5[key][:])
@@ -438,17 +548,20 @@ class rg_out_new:
                         vars()[key+'_lo'] = h5py.VirtualLayout(shape=
                                             np.shape(openh5[key])+(nts-ntsi+1,),dtype='f8')
                 if key+'_lo' in vars():
+                    source = h5py.VirtualSource(fileh5, key, shape=openh5[key].shape)
                     if openh5[key].ndim == 2:
-                        vars()[key+'_lo'][:,:,t-ntsi+1] = h5py.VirtualSource(openh5[key])
+                        vars()[key+'_lo'][:,:,t-ntsi+1] = source
                     elif openh5[key].ndim == 3:
-                        vars()[key+'_lo'][:,:,:,t-ntsi+1] = h5py.VirtualSource(openh5[key])
+                        vars()[key+'_lo'][:,:,:,t-ntsi+1] = source
                     else:
                         raise IOError('Property %s with unknown dimensions in regrid file'%key)
+
+            openh5.close()
 
         fileVDS = resultsf+'/regrid_'+simID+'_'+str(ntsi)+'_'+str(nts)+'_VDS.h5'
         self.openVDS = h5py.File(fileVDS,'w',libver='latest')
 
-        for key in openh5.keys():
+        for key in dataset_keys:
             if key+'_lo' in vars():
                 setattr(self,key,self.openVDS.create_virtual_dataset(key,vars()[key+'_lo'],fillvalue=0))
 
@@ -476,14 +589,63 @@ class rg_out_new:
         self.closeVDS()
 
 
+class rg_out_stream:
+    def __init__(self, resultsf, simID, ntsi, nts, input, grid, pressure_vert=True, pgrid_ref='auto'):
+        self.ntsi = ntsi
+        self.nts = nts
+        self.file_paths = []
+
+        for t in np.arange(ntsi - 1, nts):
+            if pressure_vert == True:
+                if pgrid_ref == 'auto':
+                    pgrid_folder = resultsf + '/pgrid_%d_%d_1' % (ntsi, nts)
+                else:
+                    pgrid_folder = resultsf + '/' + pgrid_ref[:-4]
+                fileh5 = pgrid_folder + '/regrid_' + simID + '_' + str(t + 1) + '.h5'
+            else:
+                fileh5 = resultsf + '/regrid_height_' + simID + '_' + str(t + 1) + '.h5'
+
+            if not os.path.exists(fileh5):
+                print(fileh5 + ' not found, regridding now with default settings...')
+                regrid(resultsf, simID, ntsi, nts, pgrid_ref=pgrid_ref)
+            self.file_paths.append(fileh5)
+
+        with h5py.File(self.file_paths[0], 'r') as openh5:
+            for key in openh5.keys():
+                if openh5[key].ndim == 1:
+                    setattr(self, key, openh5[key][:])
+                else:
+                    setattr(
+                        self,
+                        key,
+                        LazyRegridSeries(self.file_paths, key, openh5[key].shape, openh5[key].dtype)
+                    )
+
+    def closeVDS(self):
+        return None
+
+    def load(self, keys):
+        for key in keys:
+            data_ref = getattr(self, key, None)
+            if isinstance(data_ref, LazyRegridSeries):
+                setattr(self, key, np.asarray(data_ref[...]))
+
+
 class GetOutput:
-    def __init__(self, resultsf, simID, ntsi, nts, stride=1, openrg=0, pressure_vert=True, rotation=False, theta_y=0, theta_z=0, pgrid_ref='auto'):
+    def __init__(self, resultsf, simID, ntsi, nts, stride=1, openrg=0, pressure_vert=True, rotation=False, theta_y=0, theta_z=0, pgrid_ref='auto', output_mode='full', rg_mode='vds'):
         self.input = input_new(resultsf, simID)
         self.grid = grid_new(resultsf, simID, rotation=rotation, theta_y=theta_y, theta_z=theta_z)
         if openrg == 1:  #checking for regrid before output prevents file open conflict
-            self.rg = rg_out_new(resultsf, simID, ntsi, nts, self.input, self.grid,
-                             pressure_vert=pressure_vert, pgrid_ref=pgrid_ref)
-        self.output = output_new(resultsf, simID, ntsi, nts, self.input, self.grid, stride=stride)
+            if rg_mode == 'stream':
+                self.rg = rg_out_stream(resultsf, simID, ntsi, nts, self.input, self.grid,
+                                        pressure_vert=pressure_vert, pgrid_ref=pgrid_ref)
+            else:
+                self.rg = rg_out_new(resultsf, simID, ntsi, nts, self.input, self.grid,
+                                 pressure_vert=pressure_vert, pgrid_ref=pgrid_ref)
+        if output_mode == 'time_only':
+            self.output = output_time_only(resultsf, simID, ntsi, nts, stride=stride)
+        else:
+            self.output = output_new(resultsf, simID, ntsi, nts, self.input, self.grid, stride=stride)
 
 def define_Pgrid(resultsf, simID, ntsi, nts, stride, overwrite=False):
     pfile = 'pgrid_%d_%d_%d.txt' % (ntsi, nts, stride)
@@ -549,8 +711,8 @@ def define_Pgrid(resultsf, simID, ntsi, nts, stride, overwrite=False):
     return pfile
 
 
-if has_pycuda:
-    regrid_tools = SourceModule("""
+def _build_regrid_tools():
+    return SourceModule("""
         __device__ double dot_product(double *a, double *b) {
             return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
         }
@@ -695,6 +857,7 @@ if has_pycuda:
 
 
 def create_rg_map(resultsf, simID, idx1, idx2, rotation=False, theta_z=0, theta_y=0):
+    ensure_pycuda()
     outall = GetOutput(resultsf, simID, idx1, idx2, rotation=rotation, theta_z=theta_z, theta_y=theta_y)
     input = outall.input
     grid = outall.grid
@@ -747,6 +910,7 @@ def create_rg_map(resultsf, simID, idx1, idx2, rotation=False, theta_z=0, theta_
 
 
 def vertical_regrid_field(source_array, nv, x, xnew):
+    ensure_pycuda()
     # handles set up and running of vertical interpolation in pycuda
     vert_lin_interp = regrid_tools.get_function("vert_lin_interp")
     x_non_mono_check = np.zeros(np.shape(source_array)[:-1], dtype=np.int32)
@@ -1196,6 +1360,72 @@ def maketable(x, y, z, xname, yname, zname, resultsf, fname):
     f.close()
 
 
+def _apply_plot_transform(data, transform=None):
+    if transform is None:
+        return data
+    if transform == 'abs':
+        return np.abs(data)
+    if callable(transform):
+        return transform(data)
+    raise ValueError(f"Unknown plot transform: {transform}")
+
+
+def _apply_post_plot_transform(data, transform=None):
+    return _apply_plot_transform(data, transform)
+
+
+def _chunk_size_for_shape(spatial_shape, itemsize, tsp, target_mb=64):
+    bytes_per_time = int(np.prod(spatial_shape)) * itemsize
+    if bytes_per_time <= 0:
+        return 1
+    target_bytes = target_mb * 1024 * 1024
+    return max(1, min(tsp, target_bytes // bytes_per_time))
+
+
+def _nanmean_from_sum_count(total, count):
+    avg = np.full(total.shape, np.nan, dtype=float)
+    np.divide(total, count, out=avg, where=count > 0)
+    return avg
+
+
+def _vertical_lat_mean_chunked(value_ref, lon_index, tsp, transform=None, target_mb=64):
+    lat_size = value_ref.shape[0]
+    sig_size = value_ref.shape[2]
+    chunk_size = _chunk_size_for_shape((lat_size, len(lon_index), sig_size), value_ref.dtype.itemsize, tsp, target_mb=target_mb)
+
+    total = np.zeros((lat_size, sig_size), dtype=float)
+    count = np.zeros((lat_size, sig_size), dtype=np.int64)
+
+    for start in range(0, tsp, chunk_size):
+        stop = min(start + chunk_size, tsp)
+        chunk = np.asarray(value_ref[:, lon_index, :, start:stop])
+        chunk = _apply_plot_transform(chunk, transform)
+        total += np.nansum(chunk, axis=(1, 3))
+        count += np.sum(np.isfinite(chunk), axis=(1, 3))
+
+    return _nanmean_from_sum_count(total, count)
+
+
+def _vertical_lon_mean_chunked(value_ref, lat_index, lat_weights, tsp, transform=None, target_mb=64):
+    lon_size = value_ref.shape[1]
+    sig_size = value_ref.shape[2]
+    chunk_size = _chunk_size_for_shape((len(lat_index), lon_size, sig_size), value_ref.dtype.itemsize, tsp, target_mb=target_mb)
+
+    total = np.zeros((lon_size, sig_size), dtype=float)
+    count = np.zeros((lon_size, sig_size), dtype=np.int64)
+    weights = lat_weights[:, None, None, None]
+
+    for start in range(0, tsp, chunk_size):
+        stop = min(start + chunk_size, tsp)
+        chunk = np.asarray(value_ref[lat_index, :, :, start:stop])
+        chunk = _apply_plot_transform(chunk, transform)
+        weighted = chunk * weights
+        total += np.nansum(weighted, axis=(0, 3))
+        count += np.sum(np.isfinite(weighted), axis=(0, 3))
+
+    return _nanmean_from_sum_count(total, count)
+
+
 def vertical_lat(input, grid, output, rg, sigmaref, z, slice=['default'], save=True,
                  axis=None, csp=500, wind_vectors=False, use_p=True, clevs=[40],
                  clabel_format='%#.3g', cmap_center=False, cover_color='w',cbar=True):
@@ -1218,6 +1448,10 @@ def vertical_lat(input, grid, output, rg, sigmaref, z, slice=['default'], save=T
 
     lat = z['lat']
     lon = z['lon']
+    value_ref = z['value']
+    transform = z.get('transform')
+    post_transform = z.get('post_transform')
+    post_transform = z.get('post_transform')
     if len(slice) == 2:
         # Set the latitude-longitude grid
         if slice[1] - slice[0] > 360:
@@ -1228,6 +1462,7 @@ def vertical_lat(input, grid, output, rg, sigmaref, z, slice=['default'], save=T
             mask_ind = np.logical_or((lon - 360) >= slice[0], lon <= slice[1])
         else:
             mask_ind = np.logical_and(lon >= slice[0], lon <= slice[1])
+        lon_index = np.flatnonzero(mask_ind)
         # loni, lati = np.meshgrid(lon[mask_ind],lat)
         # d_lon = np.shape(loni)
 
@@ -1235,35 +1470,57 @@ def vertical_lat(input, grid, output, rg, sigmaref, z, slice=['default'], save=T
         #    Averages    #
         ##################
         # Averaging in time and longitude
-        if tsp > 1:
-            Zonall = np.nanmean(z['value'][:, mask_ind[:], :, :], axis=1)
+        if isinstance(value_ref, (h5py.Dataset, LazyRegridSeries)) and wind_vectors == False:
+            Zonallt = _vertical_lat_mean_chunked(
+                value_ref, lon_index, tsp,
+                transform=transform,
+                target_mb=z.get('chunk_mb', 64)
+            )
+            Zonallt = _apply_post_plot_transform(Zonallt, post_transform)
+        else:
+            value_data = _apply_plot_transform(value_ref, transform)
+            if tsp > 1:
+                Zonall = np.nanmean(value_data[:, mask_ind[:], :, :], axis=1)
             # Vl = np.nanmean(rg.V[:,:,:,:],axis=1)
             # Wl = np.nanmean(rg.W[:,:,:,:],axis=1)
-            Zonallt = np.nanmean(Zonall[:, :, :], axis=2)
+                Zonallt = np.nanmean(Zonall[:, :, :], axis=2)
+                Zonallt = _apply_post_plot_transform(Zonallt, post_transform)
             # Vlt = np.nanmean(Vl[:,:,:],axis=2)
             # Wlt = np.nanmean(Wl[:,:,:],axis=2)
-            del Zonall
-            if wind_vectors == True:
-                Vl = np.nanmean(rg.V[:, mask_ind[:], :, :], axis=1)
-                Wl = np.nanmean(rg.W[:, mask_ind[:], :, :], axis=1)
-                Vlt = np.nanmean(Vl[:, :, :], axis=2)
-                Wlt = np.nanmean(Wl[:, :, :], axis=2)
-                del Vl, Wl
-        else:
-            Zonallt = np.nanmean(z['value'][:, :, :, 0][:, mask_ind[:], :], axis=1)
+                del Zonall
+                if wind_vectors == True:
+                    Vl = np.nanmean(rg.V[:, mask_ind[:], :, :], axis=1)
+                    Wl = np.nanmean(rg.W[:, mask_ind[:], :, :], axis=1)
+                    Vlt = np.nanmean(Vl[:, :, :], axis=2)
+                    Wlt = np.nanmean(Wl[:, :, :], axis=2)
+                    del Vl, Wl
+            else:
+                Zonallt = np.nanmean(value_data[:, :, :, 0][:, mask_ind[:], :], axis=1)
+                Zonallt = _apply_post_plot_transform(Zonallt, post_transform)
             # Vlt = np.nanmean(rg.V[:,:,:,0],axis=1)
             # Wlt = np.nanmean(rg.W[:,:,:,0],axis=1)
-            if wind_vectors == True:
-                Vlt = np.nanmean(rg.V[:, :, :, 0][:, mask_ind[:], :], axis=1)
-                Wlt = np.nanmean(rg.W[:, :, :, 0][:, mask_ind[:], :], axis=1)
+                if wind_vectors == True:
+                    Vlt = np.nanmean(rg.V[:, :, :, 0][:, mask_ind[:], :], axis=1)
+                    Wlt = np.nanmean(rg.W[:, :, :, 0][:, mask_ind[:], :], axis=1)
 
     elif len(slice) == 1:
         if slice[0] in lon:
-            Zonall = z['value'][:, lon[:] == slice[0], :, :]
-            if wind_vectors == True:
-                Vl = rg.V[:, lon[:] == slice[0], :, :]
-                Wl = rg.W[:, lon[:] == slice[0], :, :]
+            lon_index = np.flatnonzero(lon[:] == slice[0])
+            if isinstance(value_ref, (h5py.Dataset, LazyRegridSeries)) and wind_vectors == False:
+                Zonallt = _vertical_lat_mean_chunked(
+                    value_ref, lon_index, tsp,
+                    transform=transform,
+                    target_mb=z.get('chunk_mb', 64)
+                )
+                Zonallt = _apply_post_plot_transform(Zonallt, post_transform)
+            else:
+                value_data = _apply_plot_transform(value_ref, transform)
+                Zonall = value_data[:, lon[:] == slice[0], :, :]
+                if wind_vectors == True:
+                    Vl = rg.V[:, lon[:] == slice[0], :, :]
+                    Wl = rg.W[:, lon[:] == slice[0], :, :]
         else:
+            value_data = _apply_plot_transform(np.asarray(value_ref[...]) if isinstance(value_ref, (h5py.Dataset, LazyRegridSeries)) else value_ref, transform)
             Zonall = np.zeros((len(lat), 1, d_sig, tsp))
             if wind_vectors == True:
                 Vl = np.zeros((len(lat), 1, d_sig, tsp))
@@ -1271,24 +1528,27 @@ def vertical_lat(input, grid, output, rg, sigmaref, z, slice=['default'], save=T
             # interpolate to slice given
             for t in tsp:
                 for lev in np.arange(d_sig):
-                    Zonall[:, 0, lev, tsp] = interp.griddata(np.vstack([lon, lat]).T, z['value'][:, :, lev, tsp], (slice[0], lat))
+                    Zonall[:, 0, lev, tsp] = interp.griddata(np.vstack([lon, lat]).T, value_data[:, :, lev, tsp], (slice[0], lat))
                     if wind_vectors == True:
                         Vl[:, 0, lev, tsp] = interp.griddata(np.vstack([lon, lat]).T, rg.V[:, :, lev, tsp], (slice[0], lat))
                         Wl[:, 0, lev, tsp] = interp.griddata(np.vstack([lon, lat]).T, rg.W[:, :, lev, tsp], (slice[0], lat))
 
         # Averaging in time
-        if tsp > 1:
-            Zonallt = np.nanmean(Zonall[:, 0, :, :], axis=2)
-            del Zonall
-            if wind_vectors == True:
-                Vlt = np.nanmean(Vl[:, 0, :, :], axis=2)
-                Wlt = np.nanmean(Wl[:, 0, :, :], axis=2)
-                del Vl, Wl
-        else:
-            Zonallt = Zonall[:, 0, :, 0]
-            if wind_vectors == True:
-                Vlt = Vl[:, 0, :, 0]
-                Wlt = Wl[:, 0, :, 0]
+        if not (isinstance(value_ref, (h5py.Dataset, LazyRegridSeries)) and slice[0] in lon and wind_vectors == False):
+            if tsp > 1:
+                Zonallt = np.nanmean(Zonall[:, 0, :, :], axis=2)
+                Zonallt = _apply_post_plot_transform(Zonallt, post_transform)
+                del Zonall
+                if wind_vectors == True:
+                    Vlt = np.nanmean(Vl[:, 0, :, :], axis=2)
+                    Wlt = np.nanmean(Wl[:, 0, :, :], axis=2)
+                    del Vl, Wl
+            else:
+                Zonallt = Zonall[:, 0, :, 0]
+                Zonallt = _apply_post_plot_transform(Zonallt, post_transform)
+                if wind_vectors == True:
+                    Vlt = Vl[:, 0, :, 0]
+                    Wlt = Wl[:, 0, :, 0]
 
     else:
         raise IOError("'slice' must have 1 or 2 values")
@@ -1467,6 +1727,8 @@ def vertical_lon(input, grid, output, rg, sigmaref, z, slice=['default'], save=T
 
     lat = z['lat']
     lon = z['lon']
+    value_ref = z['value']
+    transform = z.get('transform')
     if len(slice) == 2:
         # Set the latitude-longitude grid
         if slice[1] - slice[0] > 180:
@@ -1478,6 +1740,8 @@ def vertical_lon(input, grid, output, rg, sigmaref, z, slice=['default'], save=T
         # else:
         #     mask_ind = np.logical_and(lon>=slice[0],lon<=slice[1])
         mask_ind = np.logical_and(lat >= slice[0], lat <= slice[1])
+        lat_index = np.flatnonzero(mask_ind)
+        lat_weights = np.cos(lat[mask_ind[:]] * np.pi / 180)
         # loni, lati = np.meshgrid(lon,lat[mask_ind])
         # d_lat = np.shape(lati)
 
@@ -1486,35 +1750,58 @@ def vertical_lon(input, grid, output, rg, sigmaref, z, slice=['default'], save=T
         ##################
 
         # Averaging in time and latitude (weighted by a cosine(lat))
-        if tsp > 1:
-            Meridl = np.nanmean(z['value'][mask_ind[:], :, :, :] * np.cos(lat[mask_ind[:]] * np.pi / 180)[:, None, None, None], axis=0)
+        if isinstance(value_ref, (h5py.Dataset, LazyRegridSeries)) and wind_vectors == False:
+            Meridlt = _vertical_lon_mean_chunked(
+                value_ref, lat_index, lat_weights, tsp,
+                transform=transform,
+                target_mb=z.get('chunk_mb', 64)
+            )
+            Meridlt = _apply_post_plot_transform(Meridlt, post_transform)
+        else:
+            value_data = _apply_plot_transform(value_ref, transform)
+            if tsp > 1:
+                Meridl = np.nanmean(value_data[mask_ind[:], :, :, :] * lat_weights[:, None, None, None], axis=0)
             # Vl = np.nanmean(rg.V[:,:,:,:],axis=1)
             # Wl = np.nanmean(rg.W[:,:,:,:],axis=1)
-            Meridlt = np.nanmean(Meridl[:, :, :], axis=2)
+                Meridlt = np.nanmean(Meridl[:, :, :], axis=2)
+                Meridlt = _apply_post_plot_transform(Meridlt, post_transform)
             # Vlt = np.nanmean(Vl[:,:,:],axis=2)
             # Wlt = np.nanmean(Wl[:,:,:],axis=2)
-            del Meridl
-            if wind_vectors == True:
-                Ul = np.nanmean(rg.U[mask_ind[:], :, :, :] * np.cos(lat[mask_ind[:], 0] * np.pi / 180)[:, None, None, None], axis=0)
-                Wl = np.nanmean(rg.W[mask_ind[:], :, :, :] * np.cos(lat[mask_ind[:], 0] * np.pi / 180)[:, None, None, None], axis=0)
-                Ult = np.nanmean(Ul[:, :, :], axis=2)
-                Wlt = np.nanmean(Wl[:, :, :], axis=2)
-                del Ul, Wl
-        else:
-            Meridlt = np.nanmean(z['value'][:, :, :, 0][mask_ind[:], :, :] * np.cos(lat[mask_ind[:]] * np.pi / 180)[:, None, None], axis=0)
+                del Meridl
+                if wind_vectors == True:
+                    Ul = np.nanmean(rg.U[mask_ind[:], :, :, :] * lat_weights[:, None, None, None], axis=0)
+                    Wl = np.nanmean(rg.W[mask_ind[:], :, :, :] * lat_weights[:, None, None, None], axis=0)
+                    Ult = np.nanmean(Ul[:, :, :], axis=2)
+                    Wlt = np.nanmean(Wl[:, :, :], axis=2)
+                    del Ul, Wl
+            else:
+                Meridlt = np.nanmean(value_data[:, :, :, 0][mask_ind[:], :, :] * lat_weights[:, None, None], axis=0)
+                Meridlt = _apply_post_plot_transform(Meridlt, post_transform)
             # Ult = np.nanmean(rg.V[:,:,:,0],axis=1)
             # Wlt = np.nanmean(rg.W[:,:,:,0],axis=1)
-            if wind_vectors == True:
-                Ult = np.nanmean(rg.U[:, :, :, 0][mask_ind[:], :, :] * np.cos(lat[mask_ind[:]] * np.pi / 180)[:, None, None], axis=0)
-                Wlt = np.nanmean(rg.W[:, :, :, 0][mask_ind[:], :, :] * np.cos(lat[mask_ind[:]] * np.pi / 180)[:, None, None], axis=0)
+                if wind_vectors == True:
+                    Ult = np.nanmean(rg.U[:, :, :, 0][mask_ind[:], :, :] * lat_weights[:, None, None], axis=0)
+                    Wlt = np.nanmean(rg.W[:, :, :, 0][mask_ind[:], :, :] * lat_weights[:, None, None], axis=0)
 
     elif len(slice) == 1:
         if slice[0] in lat:
-            Meridl = z['value'][lat[:] == slice[0], :, :, :]
-            if wind_vectors == True:
-                Ul = rg.U[lat[:] == slice[0], :, :, :]
-                Wl = rg.W[lat[:] == slice[0], :, :, :]
+            lat_index = np.flatnonzero(lat[:] == slice[0])
+            lat_weights = np.cos(lat[lat_index] * np.pi / 180)
+            if isinstance(value_ref, (h5py.Dataset, LazyRegridSeries)) and wind_vectors == False:
+                Meridlt = _vertical_lon_mean_chunked(
+                    value_ref, lat_index, lat_weights, tsp,
+                    transform=transform,
+                    target_mb=z.get('chunk_mb', 64)
+                )
+                Meridlt = _apply_post_plot_transform(Meridlt, post_transform)
+            else:
+                value_data = _apply_plot_transform(value_ref, transform)
+                Meridl = value_data[lat[:] == slice[0], :, :, :]
+                if wind_vectors == True:
+                    Ul = rg.U[lat[:] == slice[0], :, :, :]
+                    Wl = rg.W[lat[:] == slice[0], :, :, :]
         else:
+            value_data = _apply_plot_transform(np.asarray(value_ref[...]) if isinstance(value_ref, (h5py.Dataset, LazyRegridSeries)) else value_ref, transform)
             Meridl = np.zeros((1, len(lon), d_sig, tsp))
             if wind_vectors == True:
                 Ul = np.zeros((1, len(lon), d_sig, tsp))
@@ -1522,24 +1809,27 @@ def vertical_lon(input, grid, output, rg, sigmaref, z, slice=['default'], save=T
             # interpolate to slice given
             for t in tsp:
                 for lev in np.arange(d_sig):
-                    Meridl[0, :, lev, tsp] = interp.griddata(np.vstack([lon, lat]).T, z['value'][:, :, lev, tsp], (lon, slice[0]))
+                    Meridl[0, :, lev, tsp] = interp.griddata(np.vstack([lon, lat]).T, value_data[:, :, lev, tsp], (lon, slice[0]))
                     if wind_vectors == True:
                         Ul[0, :, lev, tsp] = interp.griddata(np.vstack([lon, lat]).T, rg.U[:, :, lev, tsp], (lon, slice[0]))
                         Wl[0, :, lev, tsp] = interp.griddata(np.vstack([lon, lat]).T, rg.W[:, :, lev, tsp], (lon, slice[0]))
 
         # Averaging in time
-        if tsp > 1:
-            Meridlt = np.nanmean(Meridl[0, :, :, :], axis=2)
-            del Meridl
-            if wind_vectors == True:
-                Ult = np.nanmean(Ul[0, :, :, :], axis=2)
-                Wlt = np.nanmean(Wl[0, :, :, :], axis=2)
-                del Ul, Wl
-        else:
-            Meridlt = Meridl[0, :, :, 0]
-            if wind_vectors == True:
-                Ult = Ul[0, :, :, 0]
-                Wlt = Wl[0, :, :, 0]
+        if not (isinstance(value_ref, (h5py.Dataset, LazyRegridSeries)) and slice[0] in lat and wind_vectors == False):
+            if tsp > 1:
+                Meridlt = np.nanmean(Meridl[0, :, :, :], axis=2)
+                Meridlt = _apply_post_plot_transform(Meridlt, post_transform)
+                del Meridl
+                if wind_vectors == True:
+                    Ult = np.nanmean(Ul[0, :, :, :], axis=2)
+                    Wlt = np.nanmean(Wl[0, :, :, :], axis=2)
+                    del Ul, Wl
+            else:
+                Meridlt = Meridl[0, :, :, 0]
+                Meridlt = _apply_post_plot_transform(Meridlt, post_transform)
+                if wind_vectors == True:
+                    Ult = Ul[0, :, :, 0]
+                    Wlt = Wl[0, :, :, 0]
 
     else:
         raise IOError("'slice' must have 1 or 2 values")
