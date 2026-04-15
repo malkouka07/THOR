@@ -14,6 +14,7 @@ import math
 import scipy.interpolate as interp
 import scipy.ndimage as ndimage
 import os
+import shutil
 import h5py
 import time
 import subprocess as spr
@@ -963,6 +964,43 @@ def regrid(resultsf, simID, ntsi, nts, pgrid_ref='auto', overwrite=False, comp=4
 
     print('Regrid data in folder ' + resultsf + '...\n')
 
+    def _estimate_write_size_bytes(dataset_map):
+        # Allow a little overhead for HDF5 metadata and compression buffers.
+        total = 8 * 1024 * 1024
+        for value in dataset_map.values():
+            total += np.asarray(value).nbytes
+        return total
+
+    def _write_regrid_h5(path, dataset_map):
+        output_dir = os.path.dirname(path) or '.'
+        free_bytes = shutil.disk_usage(output_dir).free
+        required_bytes = _estimate_write_size_bytes(dataset_map)
+        if free_bytes <= required_bytes:
+            raise OSError(
+                f"Not enough free space to write {path}. "
+                f"Need about {required_bytes / 1024**2:.1f} MiB, "
+                f"but only {free_bytes / 1024**2:.1f} MiB are available in {output_dir}."
+            )
+
+        tmp_path = path + '.tmp'
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+        print('Writing file ' + path + '...')
+        try:
+            with h5py.File(tmp_path, "w") as openh5:
+                for key, value in dataset_map.items():
+                    openh5.create_dataset(key, data=value,
+                                          compression='gzip', compression_opts=comp)
+            os.replace(tmp_path, path)
+        except Exception:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            raise
+
     # handling of vertical coordinate
     if pgrid_ref == 'auto':
         pgrid_file = resultsf+'/'+define_Pgrid(resultsf,simID,ntsi,nts,1,overwrite=overwrite)
@@ -1223,36 +1261,24 @@ def regrid(resultsf, simID, ntsi, nts, pgrid_ref='auto', overwrite=False, comp=4
                                    interm['Psurf'][:, :, None])] = np.nan
 
             # create h5 files (pressure grid)
-            openh5 = h5py.File(fileh5p, "w")
-            print('Writing file ' + fileh5p + '...')
-            # coordinates
-            Pre = openh5.create_dataset("Pressure", data=Pref,
-                                        compression='gzip', compression_opts=comp)
-            Lat = openh5.create_dataset("Latitude", data=lat_range * 180 / np.pi,
-                                        compression='gzip', compression_opts=comp)
-            Lon = openh5.create_dataset("Longitude", data=lon_range * 180 / np.pi,
-                                        compression='gzip', compression_opts=comp)
-            # data
-            for key in dest.keys():
-                tmp_data = openh5.create_dataset(key, data=dest[key],
-                                                 compression='gzip', compression_opts=comp)
-            openh5.close()
+            pressure_datasets = {
+                "Pressure": Pref,
+                "Latitude": lat_range * 180 / np.pi,
+                "Longitude": lon_range * 180 / np.pi,
+            }
+            pressure_datasets.update(dest)
+            _write_regrid_h5(fileh5p, pressure_datasets)
 
             # create h5 files (height grid)
             if not skip_height_file:
-                openh5 = h5py.File(fileh5h, "w")
-                print('Writing file ' + fileh5h + '...')
-                Alt = openh5.create_dataset("Altitude", data=grid.Altitude,
-                                            compression='gzip', compression_opts=comp)
-                Lat = openh5.create_dataset("Latitude", data=lat_range * 180 / np.pi,
-                                            compression='gzip', compression_opts=comp)
-                Lon = openh5.create_dataset("Longitude", data=lon_range * 180 / np.pi,
-                                            compression='gzip', compression_opts=comp)
-                # data
+                height_datasets = {
+                    "Altitude": grid.Altitude,
+                    "Latitude": lat_range * 180 / np.pi,
+                    "Longitude": lon_range * 180 / np.pi,
+                }
                 for key in dest.keys():
-                    tmp_data = openh5.create_dataset(key, data=interm[key],
-                                                     compression='gzip', compression_opts=comp)
-                openh5.close()
+                    height_datasets[key] = interm[key]
+                _write_regrid_h5(fileh5h, height_datasets)
 
 
 def KE_spect(input, grid, output, sigmaref, coord='icoh', lmax_adjust=0):

@@ -7,6 +7,7 @@
 This folder now includes:
 
 - pressure-grid setup and regridding helpers
+- a local wait-and-run automation helper
 - a pressure-grid folder merger
 - a THOR regridded HDF5 to CF-style NetCDF converter
 - updated plotting helpers with lower-memory loading paths
@@ -43,8 +44,32 @@ From the THOR root directory, the typical workflow is:
 - `pgrid_merge.py`
   Merges fragmented `pgrid_*` folders into one canonical folder.
 
+- `wait_then_run.py`
+  Waits for a long-running job to finish, then runs queued shell commands.
+
 - `thor_h5_to_nc.py`
   Converts THOR regridded HDF5 output into CF-style NetCDF.
+
+## `wait_then_run.py`
+
+Purpose:
+Run the next post-processing steps automatically after a long THOR job finishes.
+
+Current behavior:
+
+- waits for one or more PIDs to exit
+- waits for one or more process-name regexes to disappear
+- waits for one or more files to appear
+- runs queued shell commands in order
+- writes a timestamped log
+- can continue past a failed command with `--keep-going`
+- supports `--dry-run`
+
+This is meant for unattended local workflows, for example:
+
+- wait for `regrid.py` to finish
+- run `pgrid_merge.py`
+- then run `thor_h5_to_nc.py`
 
 ## `pgrid_merge.py`
 
