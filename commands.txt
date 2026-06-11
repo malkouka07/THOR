@@ -1,0 +1,206 @@
+# THOR command cheat sheet
+
+
+## Environment
+
+# Activate the Python environment used for THOR post-processing tools.
+source /home/malkouka/exoplasim-env/bin/activate
+
+# Compile THOR.
+make -j"$(nproc)" release
+
+
+## Running THOR
+
+# Simple run.
+bin/esp init/venus_6.thr
+
+# Continue a run from a saved output file.
+bin/esp init/venus_5.thr -c /home/malkouka/THOR/venus_5_long_results/esp_output_venus_14683.h5
+
+
+## Notebook export
+
+# Convert notebook to HTML without input cells.
+jupyter nbconvert Ven.ipynb --to html \
+    --TagRemovePreprocessor.enabled=True \
+    --TagRemovePreprocessor.remove_cell_tags='["remove_cell"]' \
+    --TemplateExporter.exclude_input=True
+
+
+## Regridding
+
+# Regrid a contiguous range.
+python3 regrid.py -i 2850 -l 3189 ../venus_5_results
+
+# Regrid every 10th file in a range and collect the outputs in one folder.
+RESULTS=/home/malkouka/THOR/venus_5_long_results
+OUT=$RESULTS/regrid_stride10_7100_7200
+mkdir -p "$OUT"
+
+for idx in $(seq 7100 10 7200); do
+    python3 regrid.py -i "$idx" -l "$idx" "$RESULTS"
+    find "$RESULTS/pgrid_${idx}_${idx}_1" -maxdepth 1 -type f -exec mv -t "$OUT" {} +
+    rm -rf "$RESULTS/pgrid_${idx}_${idx}_1"
+done
+
+# Regrid remote-mounted results.
+python3 regrid.py -i 2000 -l 4000 /home/malkouka/THOR_POE_HOST/venus_7_results
+python3 regrid.py -i 0 -l 3500 /home/malkouka/THOR_POE_HOST/venus_8_results
+
+
+## Plotting with mjolnir
+
+# Full height-coordinate absolute zonal wind plot.
+# This version is chunked/streamed and works for 0..6000.
+python /home/malkouka/THOR/mjolnir/mjolnir.py \
+    uver_abs -vc height \
+    -f /home/malkouka/THOR/venus_5_long_results \
+    -i 0 -l 6000
+
+# Full height-coordinate absolute meridional wind plot.
+python /home/malkouka/THOR/mjolnir/mjolnir.py \
+    vver_abs -vc height \
+    -f /home/malkouka/THOR/venus_5_long_results \
+    -i 0 -l 6000
+
+# Full height-coordinate zonal-mean static stability plot.
+python /home/malkouka/THOR/mjolnir/mjolnir.py \
+    bvver -vc height \
+    -f /home/malkouka/THOR/venus_5_long_results \
+    -i 0 -l 6000
+
+
+## Automation queue
+
+# Show help.
+python3 /home/malkouka/THOR/mjolnir/wait_then_run.py --help
+
+# Wait for a known regrid PID, then run pgrid_merge.
+python3 /home/malkouka/THOR/mjolnir/wait_then_run.py \
+    --wait-pid 12345 \
+    --cwd /home/malkouka/THOR \
+    --log-path /home/malkouka/THOR/venus_5_long_results/wait_then_run.log \
+    --command "python3 /home/malkouka/THOR/mjolnir/pgrid_merge.py /home/malkouka/THOR/venus_5_long_results"
+
+# Wait until no regrid.py process remains, then merge and convert a merged folder.
+python3 /home/malkouka/THOR/mjolnir/wait_then_run.py \
+    --wait-regex '/home/malkouka/THOR/mjolnir/regrid.py' \
+    --cwd /home/malkouka/THOR \
+    --log-path /home/malkouka/THOR/venus_5_long_results/postprocess_queue.log \
+    --command "python3 /home/malkouka/THOR/mjolnir/pgrid_merge.py /home/malkouka/THOR/venus_5_long_results" \
+    --command 'for f in /home/malkouka/THOR/venus_5_long_results/pgrid_0_7061/*.h5; do python3 /home/malkouka/THOR/mjolnir/thor_h5_to_nc.py "$f"; done'
+
+# Wait for a specific final regrid file to appear, then start the next step.
+python3 /home/malkouka/THOR/mjolnir/wait_then_run.py \
+    --wait-file /home/malkouka/THOR/venus_5_long_results/pgrid_0_7061/regrid_venus_7061.h5 \
+    --cwd /home/malkouka/THOR \
+    --command "python3 /home/malkouka/THOR/mjolnir/pgrid_merge.py /home/malkouka/THOR/venus_5_long_results"
+
+
+## pgrid_merge
+
+# Show help.
+python /home/malkouka/THOR/mjolnir/pgrid_merge.py --help
+
+# Dry run only.
+python /home/malkouka/THOR/mjolnir/pgrid_merge.py \
+    /home/malkouka/THOR/venus_5_long_results \
+    --dry-run
+
+# Normal merge.
+python /home/malkouka/THOR/mjolnir/pgrid_merge.py \
+    /home/malkouka/THOR/venus_5_long_results
+
+# Merge with explicit simulation id.
+python /home/malkouka/THOR/mjolnir/pgrid_merge.py \
+    /home/malkouka/THOR/venus_5_long_results \
+    -s venus
+
+# Merge and delete redundant source folders after success.
+python /home/malkouka/THOR/mjolnir/pgrid_merge.py \
+    /home/malkouka/THOR/venus_5_long_results \
+    --delete-source-folders
+
+# Copy files instead of hard-linking.
+python /home/malkouka/THOR/mjolnir/pgrid_merge.py \
+    /home/malkouka/THOR/venus_5_long_results \
+    --copy
+
+# Custom log path.
+python /home/malkouka/THOR/mjolnir/pgrid_merge.py \
+    /home/malkouka/THOR/venus_5_long_results \
+    --log-path /home/malkouka/THOR/venus_5_long_results/pgrid_merge_manual.log
+
+
+## Last good file checker
+
+# Show help.
+python3 /home/malkouka/THOR/mjolnir/find_last_good_file.py --help
+
+# Check any results directory and report the newest file that still looks complete.
+python3 /home/malkouka/THOR/mjolnir/find_last_good_file.py \
+    /home/malkouka/THOR_POE_HOST/venus_5_long_results
+
+# Machine-readable output.
+python3 /home/malkouka/THOR/mjolnir/find_last_good_file.py \
+    /home/malkouka/THOR_POE_HOST/venus_5_long_results \
+    --json
+
+
+## H5 to NetCDF conversion
+
+# Basic pressure-grid conversion.
+# Output:
+# /home/malkouka/THOR_POE_HOST/venus_7_results/pgrid_0_2000_1_nc/regrid_venus_0.nc
+python3 /home/malkouka/THOR/mjolnir/thor_h5_to_nc.py \
+    /home/malkouka/THOR_POE_HOST/venus_7_results/pgrid_0_2000_1/regrid_venus_0.h5
+
+# Convert and validate against the original HDF5 values.
+python3 /home/malkouka/THOR/mjolnir/thor_h5_to_nc.py \
+    /home/malkouka/THOR_POE_HOST/venus_7_results/pgrid_0_2000_1/regrid_venus_0.h5 \
+    --validate
+
+# Height-grid conversion also works.
+# Output:
+# /home/malkouka/THOR/venus_5_long_results_nc/regrid_height_venus_1370.nc
+python3 /home/malkouka/THOR/mjolnir/thor_h5_to_nc.py \
+    /home/malkouka/THOR/venus_5_long_results/regrid_height_venus_1370.h5 \
+    --validate
+
+# If automatic raw-file matching fails, pass the source THOR dump explicitly.
+python3 /home/malkouka/THOR/mjolnir/thor_h5_to_nc.py \
+    /home/malkouka/THOR/venus_5_long_results/regrid_height_venus_1370.h5 \
+    --source-raw /home/malkouka/THOR/venus_5_long_results/esp_output_venus_1370.h5 \
+    --title "THOR Venus regridded output" \
+    --simulation-id venus
+
+# Send output to an explicitly chosen dedicated folder.
+python3 /home/malkouka/THOR/mjolnir/thor_h5_to_nc.py \
+    input.h5 --output-dir /path/to/dedicated_nc_folder
+
+# By default the NetCDF output is uncompressed.
+# Enable compression explicitly if you want smaller files.
+python3 /home/malkouka/THOR/mjolnir/thor_h5_to_nc.py \
+    input.h5 --compression-level 4
+
+# Explicitly request no compression.
+python3 /home/malkouka/THOR/mjolnir/thor_h5_to_nc.py \
+    input.h5 --no-compression
+
+# Convert a selected range from Venus 5.
+for i in $(seq 1000 1500); do
+    python3 /home/malkouka/THOR/mjolnir/thor_h5_to_nc.py \
+        /home/malkouka/THOR_POE_HOST/venus_5_long_results/pgrid_0_7061/regrid_venus_${i}.h5
+done
+
+
+## Remote transfer and mount
+
+# Upload results to POE.
+scp -i /home/malkouka/.ssh/id_ed25519 -r \
+    /home/malkouka/THOR/venus_5_results \
+    cserpakm@poe.elte.hu:~/THOR_files/
+
+# Mount POE results locally.
+sshfs cserpakm@poe.elte.hu:/home/cserpakm/THOR_files /home/malkouka/THOR_POE_HOST
