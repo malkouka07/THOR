@@ -1,3 +1,7 @@
+> **AI assistance and review notice:** The code and documentation in this
+> directory were drafted with the assistance of OpenAI Codex, an AI coding
+> agent based on GPT-5. They are currently being reviewed by `malkouka07`.
+
 # THOR Venus → RePLaT conversion, indices 50591–50690
 
 This directory contains the reproducible THOR-to-RePLaT conversion tools and
@@ -93,3 +97,7 @@ data-publication scope of this branch.
 The scripts protect existing outputs unless overwrite is requested explicitly.
 The NetCDF converter writes through a temporary `.partial` file and renames it
 only after a successful write.
+
+> **AI assistance and review notice:** The code and documentation in this
+> directory were drafted with the assistance of OpenAI Codex, an AI coding
+> agent based on GPT-5. They are currently being reviewed by `malkouka07`.
