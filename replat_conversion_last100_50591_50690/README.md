@@ -69,6 +69,13 @@ NetCDF4/HDF5 dependencies:
 
 ```bash
 cdo sinfo replat_venus_00050591_motus_nc3_classic.nc
+sha256sum replat_venus_00050591_motus_nc3_classic.nc
+```
+
+The expected SHA-256 value of this first compatibility file is:
+
+```text
+9a2a10fe49f1b9b831705e28ba3d3313ae534ba552941df1b6426cf982a39444
 ```
 
 The same `.nc` file can be opened directly in Panoply. To recreate the whole
@@ -78,6 +85,11 @@ directory from the canonical NetCDF4 files:
 scripts/convert_standard_netcdf_to_netcdf3_classic.sh \
     standard_netcdf motus_netcdf3_classic
 ```
+
+The conversion preserves every decoded data value and metadata value.
+NetCDF3 classic has no 64-bit integer type, so the
+`source_output_index=50591…50690` global attribute is stored as a 32-bit
+integer instead; its value is unchanged and is far inside the 32-bit range.
 
 A GRIB1 set is deliberately not included. A trial conversion changed the
 required pressure coordinates—for example, `97895 Pa` became `97900 Pa`—and
@@ -147,8 +159,10 @@ The complete 100-file batch was checked with
 - latitude, longitude, poles, dimensions, units, and finite values passed;
 - all GRIB2 files were readable with CDO;
 - all 100 Motus files have the NetCDF3 classic `CDF-1` signature;
-- CDO `diffn` found no decoded value or metadata differences between each
-  Motus file and its canonical NetCDF counterpart;
+- CDO `diffn` found no decoded data differences between each Motus file and
+  its canonical NetCDF counterpart;
+- an NCO metadata comparison found no changed metadata values after
+  normalizing the documented 64-bit-to-32-bit index storage change;
 - result: **0 errors and 0 warnings**.
 
 The generated validation report is deliberately not committed, per the
@@ -162,6 +176,7 @@ data-publication scope of this branch.
 - h5py
 - xarray
 - netCDF4
+- NCO 5.2.1
 - CDO 2.4.0 with ecCodes 2.34.1
 
 The scripts protect existing outputs unless overwrite is requested explicitly.

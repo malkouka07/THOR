@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Convert the standardized RePLaT NetCDF4 files to legacy-compatible
-# NetCDF3 classic (CDF-1) files without changing the decoded data or metadata.
+# NetCDF3 classic (CDF-1) files while preserving data and metadata values.
 set -euo pipefail
 
 usage() {
@@ -22,10 +22,12 @@ elif [[ $# -eq 3 ]]; then
     exit 2
 fi
 
-if ! command -v cdo >/dev/null 2>&1; then
-    echo "ERROR: CDO is required for NetCDF3 conversion." >&2
-    exit 2
-fi
+for required_command in basename cdo diff mv ncks od rm sed tr; do
+    if ! command -v "$required_command" >/dev/null 2>&1; then
+        echo "ERROR: $required_command is required for conversion." >&2
+        exit 2
+    fi
+done
 
 mkdir -p "$output_dir"
 
@@ -47,7 +49,10 @@ for input in "${inputs[@]}"; do
     fi
 
     rm -f -- "$temporary"
-    cdo -s -f nc1 copy "$input" "$temporary"
+    # -3 selects NetCDF3 classic and -h prevents tool-generated history
+    # entries. NetCDF3 has no 64-bit integer type, so NCO safely stores the
+    # small source_output_index attribute as int32 with the same value.
+    ncks -O -h -3 "$input" "$temporary"
 
     # A NetCDF3 classic file starts with the four-byte CDF-1 signature.
     signature=$(od -An -tx1 -N4 "$temporary" | tr -d '[:space:]')
@@ -61,12 +66,33 @@ for input in "${inputs[@]}"; do
     diff_output=$(cdo -s diffn "$input" "$temporary" 2>&1)
     if [[ -n $diff_output ]]; then
         rm -f -- "$temporary"
-        echo "ERROR: decoded values or metadata changed for $input:" >&2
+        echo "ERROR: decoded values changed for $input:" >&2
         echo "$diff_output" >&2
+        exit 1
+    fi
+
+    # Compare all global and variable metadata after normalizing the only
+    # intentional storage-type change: int64 to int32 for source_output_index.
+    metadata_diff=$(
+        diff -u \
+            <(
+                ncks -m -M "$input" |
+                        sed -E \
+                        -e '1s/^netcdf .* \{/netcdf FILE {/' \
+                        -e 's/(:source_output_index = [0-9]+)ll([[:space:]]*;)/\1\2/'
+            ) \
+            <(
+                ncks -m -M "$temporary" |
+                    sed -E '1s/^netcdf .* \{/netcdf FILE {/'
+            ) || true
+    )
+    if [[ -n $metadata_diff ]]; then
+        rm -f -- "$temporary"
+        echo "ERROR: metadata values changed for $input:" >&2
+        echo "$metadata_diff" >&2
         exit 1
     fi
 
     mv -f -- "$temporary" "$output"
     echo "Wrote $output"
 done
-
