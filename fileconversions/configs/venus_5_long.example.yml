@@ -1,0 +1,14 @@
+simulation_name: venus
+input_kind: mjolnir-processed
+# Relative paths are resolved from this YAML file; use an actual local path.
+planet_file: /path/to/venus_5_long_benchmark/esp_output_planet_venus.h5
+target_grid:
+  latitude_step_degrees: 4
+  longitude_step_degrees: 4
+  longitude_convention: 0-360
+time:
+  technical_epoch: "2000-01-01T00:00:00Z"
+vertical_velocity_mode: strict
+level_encoding: strict
+file_layout: per-variable
+review_status: pending manual review by Márkó
