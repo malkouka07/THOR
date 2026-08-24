@@ -1,0 +1,2 @@
+source_file,regenerated_file,status,coordinates,grid_shape,variables,units,dimension_order,minimum,maximum,mean,standard_deviation,maximum_absolute_difference,rms_difference,missing_value_count,notes
+/home/malkouka/THOR_POE_HOST/venus_5_long_benchmark/pgrid_0_10_1/regrid_venus_1.h5,,not_run,,,,,,,,,,,,,Official Mjolnir regeneration requires PyCUDA/CUDA; existing processed input was inspected statically and directly.

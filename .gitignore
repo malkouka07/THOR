@@ -30,3 +30,9 @@ include/git-rev.h
 # jupyter notebooks temp checkpoints directories
 **/.ipynb_checkpoints/
 
+# Local environment and generated file-conversion products
+.venv-fileconversions/
+fileconversions/validation/*.grib*
+fileconversions/validation/*.grb*
+fileconversions/validation/*.nc
+fileconversions/validation/*.h5

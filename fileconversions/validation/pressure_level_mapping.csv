@@ -1,0 +1,21 @@
+source_level,source_units,source_level_pa,target_level_pa,absolute_error_pa,relative_error,interpolation_performed,interpolation_method,grib2_level_encoding,grib1_level_encoding,grib1_exactly_representable,compatibility_mode,notes
+0,Pa,99578.66,99578,0.66,0.000006627926,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+1,Pa,98740.38,98740,0.38,0.000003848476,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+2,Pa,97484.07,97484,0.07,0.000000718066,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+3,Pa,95036.73,95037,0.27,0.000002841007,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+4,Pa,90443.63,90444,0.37,0.000004090946,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+5,Pa,82394.24,82394,0.24,0.000002912825,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+6,Pa,69838.16,69838,0.16,0.000002291011,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+7,Pa,53397.42,53397,0.42,0.000007865549,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+8,Pa,36181.45,36181,0.45,0.000012437312,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+9,Pa,22012.64,22013,0.36,0.000016354240,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+10,Pa,12587.03,12587,0.03,0.000002383406,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+11,Pa,6976.137,6976,0.137,0.000019638376,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+12,Pa,3667.55,3668,0.45,0.000122697714,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+13,Pa,1772.695,1773,0.305,0.000172054414,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+14,Pa,764.7837,765,0.2163,0.000282825065,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+15,Pa,289.5211,290,0.4789,0.001654110875,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+16,Pa,98.61392,99,0.38608,0.003915065946,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+17,Pa,32.55017,33,0.44983,0.013819589882,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+18,Pa,11.16187,11,0.16187,0.014502050284,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
+19,Pa,4.097814,5,0.902186,0.220162750188,True,linear in log(p),isobaricInPa,pending writer policy,False,pending,strict GRIB1 blocked
