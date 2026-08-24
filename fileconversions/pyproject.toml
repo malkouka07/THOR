@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mjolnir-fileconversions"
+version = "0.1.0"
+description = "Strict converters for Mjolnir-processed HDF5, NetCDF, GRIB1 and GRIB2"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "xarray>=2024.1",
+  "h5py>=3.10",
+  "netCDF4>=1.6",
+  "PyYAML>=6.0",
+  "eccodes>=2.34,<3",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
