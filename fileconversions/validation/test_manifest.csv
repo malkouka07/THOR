@@ -1,0 +1,11 @@
+test_type,input,status,details
+unit,fileconversions/tests,passed,26 tests passed; one documented system NumPy binary-compatibility warning
+synthetic_integration,canonical GRIB1 and GRIB2,passed,9 decoded parity messages; maximum absolute difference 0
+real_data_smoke,pgrid_0_10_1/regrid_venus_1.h5 → GRIB2,passed,60 u/v/hydrostatic-omega messages; ecCodes and CDO reopen; canonical round-trip max abs 1.9073486328125e-06
+real_data_smoke,pgrid_0_10_1/regrid_venus_1.h5 → GRIB1,blocked by unsupported GRIB1 pressure level,strict stopped at 99578 Pa; mapping report written; no partial GRIB1
+real_data_smoke,real migrated GRIB2 → GRIB1,blocked by unsupported GRIB1 pressure level,strict stopped at 99578 Pa; explicit message mapping records blocked status
+real_data_smoke,replat_venus_00050591.nc → GRIB1,blocked by unsupported GRIB1 pressure level,strict stopped at 97895 Pa; no partial GRIB1
+upstream_regeneration,native → processed HDF5,blocked by missing dependency,official Mjolnir path requires PyCUDA/CUDA; no replacement interpolator was run
+real_data_smoke,pgrid_0_10_1/regrid_venus_1.h5 → GRIB1 strict,blocked by unsupported GRIB1 pressure level,99578 Pa is not exactly representable as standard integer hPa
+real_data_parity,GRIB1 vs GRIB2,blocked by unsupported GRIB1 pressure level,No real full-level GRIB1 was falsely generated
+upstream_regeneration,Mjolnir native → processed HDF5,not run,PyCUDA/CUDA requirement and existing processed products

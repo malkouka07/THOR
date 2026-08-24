@@ -1,0 +1,10 @@
+input_file,variable,time,pressure_level_pa,grid_shape,grib1_min,grib2_min,grib1_max,grib2_max,max_absolute_difference,mean_absolute_difference,rms_difference,relative_rms_difference,packing_tolerance,parity_status,notes
+synthetic canonical writer input,eastward_wind,20000101T0000,10000,46x90,1.0006091594696045,1.0006091594696045,2.9993908405303955,2.9993908405303955,0,0,0,0,0.0001,passed,decoded GRIB1 level=10000 Pa
+synthetic canonical writer input,eastward_wind,20000101T0000,50000,46x90,0.0006091729737818241,0.0006091729737818241,1.9993908540345728,1.9993908540345728,0,0,0,0,0.0001,passed,decoded GRIB1 level=50000 Pa
+synthetic canonical writer input,eastward_wind,20000101T0000,100000,46x90,-0.9993908405303955,-0.9993908405303955,0.9993908405303955,0.9993908405303955,0,0,0,0,0.0001,passed,decoded GRIB1 level=100000 Pa
+synthetic canonical writer input,northward_wind,20000101T0000,10000,46x90,-2.9987820386886597,-2.9987820386886597,-1.0012179613113403,-1.0012179613113403,0,0,0,0,0.0001,passed,decoded GRIB1 level=10000 Pa
+synthetic canonical writer input,northward_wind,20000101T0000,50000,46x90,-1.9987820386886597,-1.9987820386886597,-0.001217961311340332,-0.001217961311340332,0,0,0,0,0.0001,passed,decoded GRIB1 level=50000 Pa
+synthetic canonical writer input,northward_wind,20000101T0000,100000,46x90,-0.9987820386886597,-0.9987820386886597,0.9987820386886597,0.9987820386886597,0,0,0,0,0.0001,passed,decoded GRIB1 level=100000 Pa
+synthetic canonical writer input,omega,20000101T0000,10000,46x90,-3,-3,3,3,0,0,0,0,0.0001,passed,decoded GRIB1 level=10000 Pa
+synthetic canonical writer input,omega,20000101T0000,50000,46x90,-2,-2,2,2,0,0,0,0,0.0001,passed,decoded GRIB1 level=50000 Pa
+synthetic canonical writer input,omega,20000101T0000,100000,46x90,-1,-1,1,1,0,0,0,0,0.0001,passed,decoded GRIB1 level=100000 Pa
