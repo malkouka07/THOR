@@ -9,6 +9,7 @@ target_grid:
 time:
   technical_epoch: "2000-01-01T00:00:00Z"
 vertical_velocity_mode: strict
+pressure_level_policy: hpa-aligned
 level_encoding: strict
 file_layout: per-variable
 review_status: pending manual review by Márkó

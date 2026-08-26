@@ -1,0 +1,18 @@
+level_index,pressure_hpa,pressure_pa,status,derivation
+0,995,99500,emitted,nearest source-following safe integer hPa
+1,987,98700,emitted,nearest source-following safe integer hPa
+2,975,97500,emitted,nearest source-following safe integer hPa
+3,950,95000,emitted,nearest source-following safe integer hPa
+4,904,90400,emitted,nearest source-following safe integer hPa
+5,824,82400,emitted,nearest source-following safe integer hPa
+6,698,69800,emitted,nearest source-following safe integer hPa
+7,534,53400,emitted,nearest source-following safe integer hPa
+8,362,36200,emitted,nearest source-following safe integer hPa
+9,220,22000,emitted,nearest source-following safe integer hPa
+10,126,12600,emitted,nearest source-following safe integer hPa
+11,70,7000,emitted,nearest source-following safe integer hPa
+12,37,3700,emitted,nearest source-following safe integer hPa
+13,18,1800,emitted,nearest source-following safe integer hPa
+14,8,800,emitted,nearest source-following safe integer hPa
+15,3,300,emitted,nearest source-following safe integer hPa
+16,1,100,emitted,nearest source-following safe integer hPa

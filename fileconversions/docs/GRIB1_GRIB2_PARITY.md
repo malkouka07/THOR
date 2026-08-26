@@ -18,4 +18,10 @@ Review status: pending manual review by Márkó
 
 The synthetic writer comparison uses the same canonical arrays, grid, times and exact hPa-representable Pa levels. All nine decoded field/level pairs had maximum absolute difference 0 with identical 24-bit simple packing. Results are in `validation/grib1_vs_grib2_parity.csv`.
 
-Real HDF5→GRIB2 produced 60 messages from the same canonical path; direct round-trip maximum absolute error was `1.9073486328125e-06`. Full-level parity is blocked before GRIB1 writing because Venus levels such as 99,578 Pa are not exact WMO GRIB1 hPa levels. This is an expected strict-format limitation, not a parity success. The real HDF5→GRIB2 output and strict failure reports are stored outside Git.
+The Venus5 benchmark keeps 20 integer-Pa levels in HDF5→GRIB2, then the
+GRIB2→GRIB1 adapter derives and interpolates to the same 17 exact hPa surfaces
+as the direct HDF5→GRIB1 route. Direct and adapter-derived GRIB1 each contain
+561 messages. All comparisons pass at `0.002`; maximum absolute difference is
+`0.00162506104`. The nonzero difference includes the GRIB2 route's extra
+source-float→integer-Pa interpolation and packing. Products are outside Git at
+`/home/malkouka/THOR_POE_HOST/venus_5_fileconversions/`.

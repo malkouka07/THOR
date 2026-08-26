@@ -13,5 +13,8 @@ Review status: pending manual review by Márkó
 | GRIB2 ecCodes writer adapter | prior CDO parameter mapping | new implementation, Codex-assisted |
 | GRIB2→GRIB1 and NetCDF→GRIB1 | none | new, Codex-assisted |
 | Tests/docs/reports | prior validator supplied some statistical concepts | new or substantially modified, Codex-assisted |
+| Exact-hPa target derivation and direct log(p) interpolation | follow-up consumer requirements; no prior implementation | new in the `fileconversions` branch, Codex-assisted |
+| Grouped GRIB2 pressure-stack adapter with native validity times | replaced the branch's initial message-by-message adapter | substantially refactored, Codex-assisted |
+| Venus5 generated GRIB1/GRIB2 products | read-only `venus_5_long_benchmark` Mjolnir products | generated outside Git; values and reports remain pending review |
 
 No existing file is represented as wholly authored by Codex. Historical commits retain their original authorship. All new products remain pending manual review by Márkó.

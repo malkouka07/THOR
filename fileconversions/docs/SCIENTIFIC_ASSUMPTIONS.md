@@ -12,3 +12,9 @@ Processed U/V are geographic winds because Mjolnir projects native Cartesian mom
 The exact pole has no unique local east/north basis. Zero U/V is a documented regularity convention inherited from the prior GRIB2 flow, not a claim that every physical polar vector must vanish. Scalar/omega poles use a zonal ring mean.
 
 The GRIB date is a technical epoch plus model elapsed time and is not terrestrial observation time. Venus metadata not representable in GRIB1 is retained in JSON sidecars.
+
+GRIB1 pressure targets are selected from the source profile at the nearest
+positive integer hPa inside the non-extrapolating common pressure range. Exact
+half-hPa ties go toward lower pressure and duplicate coordinates are omitted.
+Fields are evaluated at emitted targets by piecewise-linear interpolation in
+`log(p)`; pressure labels are never substituted for this evaluation.

@@ -3,11 +3,21 @@
 Generated with OpenAI Codex assistance
 Review status: pending manual review by Márkó
 
-Standard GRIB1 isobaric levels use integer hPa. `strict` accepts only integer-Pa levels divisible by 100. Most inspected Venus levels are not, so full conversion stops without output and preserves a mapping report.
+Standard GRIB1 isobaric levels use integer hPa. `strict` accepts only integer-Pa
+levels divisible by 100. The production `hpa-aligned` policy first derives such
+surfaces inside the source domain and genuinely interpolates every field there.
+The Venus5 source has 20 levels but only 17 unique positive hPa targets; the
+three duplicate sub-1-hPa targets are explicitly reported as omitted.
 
-`hpa-rounded` is opt-in and checks both `--max-level-absolute-error-pa` and `--max-level-relative-error`. Very low pressures can have unacceptable relative error or round to 0 hPa. `ecmwf-pa` is an ecCodes-specific GRIB1 representation with a 16-bit maximum of 65,535 Pa, so it cannot represent lower-atmosphere Venus levels near 100 kPa. Neither compatibility mode is asserted RePLaT-compatible without an external reference.
+`hpa-rounded` is retained only for legacy diagnostics: it changes a pressure
+label without recalculating the field and is not suitable for production.
+`ecmwf-pa` is an ecCodes-specific GRIB1 representation with a 16-bit maximum of
+65,535 Pa, so it cannot represent lower-atmosphere Venus levels near 100 kPa.
 
-No local historical GRIB1 reference file was found. Centre 98, WMO table version 2 and parameters 33/34/39 are verified against ecCodes definitions, but centre/message order/packing expectations of an external consumer still need manual integration review.
+The colleague's example uses ECMWF local-table omega `135.128`; this converter
+uses portable WMO table-2 omega `39.2`. ecCodes maps both to parameter 135 in
+Pa/s, but their wire metadata is not byte-identical. Centre/message order and
+packing expectations still need consumer integration review.
 
 GRIB2 local tables, disciplines beyond the mapped winds/omega, rich CF attributes, calendars and Venus metadata may be lost; mapping CSV and sidecars document that loss. GRIB1 minute-level time encoding cannot preserve sub-minute model times and stops.
 

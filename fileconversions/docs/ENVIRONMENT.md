@@ -27,4 +27,4 @@ The implemented backend is Python ecCodes. CDO is an independent reopen check. `
 
 Reproduce with the installation commands in the main README and `requirements-fileconversions.txt`. The wheels `eccodeslib` and `eckitlib` supply the local ecCodes runtime.
 
-The test run emits one non-fatal `numpy.ndarray size changed` warning from an Ubuntu binary extension loaded by the system-site-packages environment. All 26 tests pass, but a fully isolated wheel/conda environment is recommended before production to remove that ABI warning.
+The test run emits one non-fatal `numpy.ndarray size changed` warning from an Ubuntu binary extension loaded by the system-site-packages environment. All 36 tests pass, but a fully isolated wheel/conda environment is recommended before production to remove that ABI warning.

@@ -1,0 +1,5 @@
+route,files,messages,fields,times,source_levels,output_levels,status,notes
+HDF5_to_GRIB1,3,561,3,11,20,17,passed,direct source-to-hPa log-pressure interpolation
+HDF5_to_GRIB2,3,660,3,11,20,20,passed,integer-Pa benchmark stack
+GRIB2_to_GRIB1,3,561,3,11,20,17,passed,grouped stack interpolation and native validity times
+direct_vs_adapter,6,561,3,11,17,17,passed,maximum absolute difference 0.00162506104 at tolerance 0.002

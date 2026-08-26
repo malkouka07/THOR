@@ -9,10 +9,13 @@ Review status: pending manual review by Márkó
 * [ ] Double interpolation and vector rotation safeguards are reviewed
 * [ ] Pole handling is scientifically reviewed
 * [ ] Pressure-level mapping is manually reviewed
-* [ ] GRIB1 strict/hPa/ecmwf level policies are reviewed
+* [ ] The 17-level Venus5 hPa target and log(p) interpolation are reviewed
+* [ ] Dropped duplicate sub-1-hPa source levels are accepted
+* [ ] Legacy label-only `hpa-rounded` is excluded from production
 * [ ] Omega physical definition and sign are reviewed
 * [ ] Venus gravity provenance is verified
 * [ ] GRIB1 parameter identifiers 33/34/39 are independently checked
+* [ ] WMO omega `39.2` versus ECMWF local omega `135.128` is accepted
 * [ ] GRIB1 centre/table/level encoding matches the target consumer
 * [ ] Real-data round-trip validation is reviewed
 * [ ] GRIB1–GRIB2 parity is reviewed
