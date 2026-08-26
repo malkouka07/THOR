@@ -85,14 +85,14 @@ def decode_grib_messages(paths: Sequence[Path]) -> list[DecodedGribMessage]:
                     lon_points = np.mod(np.asarray(codes.codes_get_array(handle, "longitudes"), dtype=np.float64), 360.0)
                     raw_values = np.asarray(codes.codes_get_array(handle, "values"), dtype=np.float64)
                     if int(_get(codes, handle, "bitmapPresent", 0)):
-                        raw_values[
-                            np.isclose(
-                                raw_values,
-                                codes.CODES_MISSING_DOUBLE,
-                                rtol=1e-6,
-                                atol=0,
+                        bitmap = np.asarray(
+                            codes.codes_get_array(handle, "bitmap"), dtype=np.int8
+                        )
+                        if bitmap.shape != raw_values.shape:
+                            raise ConversionError(
+                                f"{path} message {index} bitmap/value shape mismatch"
                             )
-                        ] = np.nan
+                        raw_values[bitmap == 0] = np.nan
                     latitude = np.unique(np.round(lat_points, 10)); latitude.sort()
                     longitude = np.unique(np.round(lon_points, 10)); longitude.sort()
                     values = np.empty((latitude.size, longitude.size), dtype=np.float64)

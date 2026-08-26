@@ -6,7 +6,7 @@ import json
 import math
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO, Iterable
 
@@ -148,14 +148,37 @@ def set_values(codes, handle: int, values_south_to_north: np.ndarray, bits_per_v
     values = np.asarray(values_south_to_north, dtype=np.float64)
     scan_values = values[::-1, :].reshape(-1)
     if np.any(np.isnan(scan_values)):
+        # ecCodes uses the configured missingValue to construct a bitmap.
+        # CODES_MISSING_DOUBLE works for the GRIB1 sample but overflows the
+        # GRIB2 sample's IEEE conversion, so use an explicit finite sentinel.
+        missing_sentinel = 1.0e36
+        if np.any(scan_values[np.isfinite(scan_values)] == missing_sentinel):
+            missing_sentinel = -1.0e36
+        codes.codes_set(handle, "missingValue", missing_sentinel)
         codes.codes_set(handle, "bitmapPresent", 1)
-        scan_values = np.where(np.isnan(scan_values), codes.CODES_MISSING_DOUBLE, scan_values)
+        scan_values = np.where(np.isnan(scan_values), missing_sentinel, scan_values)
     codes.codes_set(handle, "packingType", "grid_simple")
     codes.codes_set(handle, "bitsPerValue", int(bits_per_value))
     codes.codes_set_values(handle, scan_values)
 
 
 def valid_datetime(dataset: CanonicalDataset, time_index: int, epoch: str = DEFAULT_EPOCH) -> datetime:
+    absolute = dataset.metadata.get("absolute_valid_times_utc")
+    if absolute is not None:
+        value = absolute[time_index]
+        if isinstance(value, datetime):
+            parsed = value
+        else:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.astimezone(timezone.utc)
+        if parsed.second != 0 or parsed.microsecond != 0:
+            raise ConversionError(
+                "GRIB validity time has sub-minute precision and cannot be encoded exactly: "
+                f"{parsed.isoformat()}"
+            )
+        return parsed
     return grib_valid_datetime(float(dataset.time_seconds[time_index]), epoch)
 
 
@@ -210,7 +233,34 @@ def git_commit() -> str:
         return "unknown"
 
 
-def write_sidecar(path: Path, dataset: CanonicalDataset, *, edition: int, level_encoding: str) -> None:
+def write_sidecar(
+    path: Path,
+    dataset: CanonicalDataset,
+    *,
+    edition: int,
+    level_encoding: str,
+    technical_epoch: str = DEFAULT_EPOCH,
+) -> None:
+    parameter_metadata = {
+        "eastward_wind": {
+            "grib1_wire_id": "33.2",
+            "grib2_id": "0/2/2",
+            "eccodes_param_id": 131,
+            "units": "m s-1",
+        },
+        "northward_wind": {
+            "grib1_wire_id": "34.2",
+            "grib2_id": "0/2/3",
+            "eccodes_param_id": 132,
+            "units": "m s-1",
+        },
+        "omega": {
+            "grib1_wire_id": "39.2",
+            "grib2_id": "0/2/8",
+            "eccodes_param_id": 135,
+            "units": "Pa s-1",
+        },
+    }
     payload = {
         "source_files": [str(item) for item in dataset.source_files],
         "simulation_name": dataset.metadata.get("simulation_name"),
@@ -221,10 +271,27 @@ def write_sidecar(path: Path, dataset: CanonicalDataset, *, edition: int, level_
             "longitude": [float(dataset.longitude[0]), float(dataset.longitude[-1]), int(dataset.longitude.size)],
         },
         "pressure_levels_pa": dataset.level_pa.astype(int).tolist(),
+        "pressure_level_policy": dataset.metadata.get("pressure_level_policy"),
+        "vertical_interpolation_method": dataset.metadata.get(
+            "vertical_interpolation_method"
+        ),
+        "vertical_interpolation_count": dataset.metadata.get(
+            "vertical_interpolation_count"
+        ),
         "grib_edition": edition,
         "grib1_level_encoding": level_encoding if edition == 1 else None,
         "omega_method": dataset.metadata.get("omega_method"),
         "time_reference": dataset.metadata.get("time_reference", DEFAULT_EPOCH),
+        "elapsed_time_seconds": dataset.time_seconds.tolist(),
+        "technical_epoch_utc": (
+            None
+            if dataset.metadata.get("absolute_valid_times_utc") is not None
+            else technical_epoch
+        ),
+        "absolute_valid_times_utc": dataset.metadata.get("absolute_valid_times_utc"),
+        "grib_parameters": {
+            name: parameter_metadata[name] for name in dataset.fields
+        },
         "software_version": "mjolnir-fileconversions 0.1.0",
         "git_commit": git_commit(),
         "review_status": "pending manual review by Márkó",

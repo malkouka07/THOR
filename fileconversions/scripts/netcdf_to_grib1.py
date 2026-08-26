@@ -29,6 +29,12 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--lon-step", type=float, default=4.0)
     result.add_argument("--longitude-convention", choices=("0-360",), default="0-360")
     result.add_argument("--regrid", choices=("never", "if-needed", "always"), default="if-needed")
+    result.add_argument(
+        "--pressure-level-policy",
+        choices=("source", "hpa-aligned"),
+        default="hpa-aligned",
+        help="derive exact integer-hPa targets with log-pressure interpolation (default)",
+    )
     result.add_argument("--level-encoding", choices=("strict", "hpa-rounded", "ecmwf-pa"), default="strict")
     result.add_argument("--max-level-absolute-error-pa", type=float, default=50.0)
     result.add_argument("--max-level-relative-error", type=float, default=0.001)

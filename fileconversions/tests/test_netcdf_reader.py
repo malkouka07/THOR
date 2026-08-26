@@ -71,3 +71,52 @@ def test_time_indices_limit_the_loaded_netcdf_slice(tmp_path):
     )
     assert result.time_seconds.tolist() == [3600.0]
     assert np.array_equal(result.fields["eastward_wind"][0], values[1])
+
+
+def test_netcdf_hpa_policy_interpolates_values_not_only_level_labels(tmp_path):
+    lat = np.array([-90.0, 0.0, 90.0])
+    lon = np.array([0.0, 120.0, 240.0])
+    level = np.array([99578.0, 50040.0, 98.0])
+    base = np.log(level)[None, :, None, None]
+    shape = (2, level.size, lat.size, lon.size)
+    u = np.broadcast_to(base, shape).copy()
+    source = xr.Dataset(
+        {
+            "u": (("time", "level", "lat", "lon"), u),
+            "v": (("time", "level", "lat", "lon"), 2.0 * u),
+            "omega": (
+                ("time", "level", "lat", "lon"),
+                -3.0 * u,
+                {
+                    "standard_name": "lagrangian_tendency_of_air_pressure",
+                    "units": "Pa s-1",
+                },
+            ),
+        },
+        coords={
+            "time": ("time", [0.0, 86400.0], {"units": "seconds since technical epoch"}),
+            "level": ("level", level, {"units": "Pa", "axis": "Z"}),
+            "lat": ("lat", lat, {"standard_name": "latitude"}),
+            "lon": ("lon", lon, {"standard_name": "longitude"}),
+        },
+    )
+    path = tmp_path / "log_pressure.nc"
+    source.to_netcdf(path)
+
+    result, _ = read_netcdf(
+        path,
+        lat_step=90,
+        lon_step=120,
+        regrid="never",
+        pressure_level_policy="hpa-aligned",
+    )
+
+    assert np.array_equal(result.level_pa, [99500, 50000, 100])
+    assert np.allclose(
+        result.fields["eastward_wind"],
+        np.log(result.level_pa)[None, :, None, None],
+        atol=1e-12,
+    )
+    assert result.time_seconds.tolist() == [0.0, 86400.0]
+    assert result.units["omega"] == "Pa s-1"
+    assert result.metadata["vertical_interpolation_count"] == 1

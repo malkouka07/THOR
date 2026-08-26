@@ -77,3 +77,40 @@ def test_explicit_regular_grid_is_cross_checked(tmp_path):
         grid_file=grid,
     )
     assert dataset.metadata["explicit_grid_file"] == str(grid.resolve())
+
+
+def test_hpa_policy_interpolates_original_pressure_once_in_log_p(tmp_path):
+    path = tmp_path / "regrid_log_1.h5"
+    lat = np.array([-45.0, 0.0, 45.0])
+    lon = np.array([0.0, 90.0, 180.0, 270.0])
+    level = np.array([99578.66, 50040.0, 98.61392])
+    logarithm = np.log(level)
+    shape = (lat.size, lon.size, level.size)
+    u = np.broadcast_to(logarithm, shape).copy()
+    with h5py.File(path, "w") as handle:
+        handle["Latitude"] = lat
+        handle["Longitude"] = lon
+        handle["Pressure"] = level
+        handle["U"] = u
+        handle["V"] = 2.0 * u
+    with h5py.File(tmp_path / "esp_output_log_1.h5", "w") as handle:
+        handle["simulation_time"] = np.array([12345.0])
+
+    result, mapping = read_processed_hdf5(
+        path,
+        variables=["u", "v"],
+        lat_step=45,
+        lon_step=90,
+        pressure_level_policy="hpa-aligned",
+    )
+
+    assert np.array_equal(result.level_pa, [99500, 50000, 100])
+    assert np.allclose(
+        result.fields["eastward_wind"][:, :, 1:-1, :],
+        np.log(result.level_pa)[None, :, None, None],
+        atol=1e-12,
+    )
+    assert result.time_seconds.tolist() == [12345.0]
+    assert result.metadata["pressure_level_policy"] == "hpa-aligned"
+    assert result.metadata["vertical_interpolation_count"] == 1
+    assert all(row.interpolation_method == "linear in log(p)" for row in mapping)

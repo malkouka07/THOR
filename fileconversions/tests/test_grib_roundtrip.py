@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -45,6 +46,9 @@ def test_grib1_write_read_roundtrip_and_parameters(tmp_path):
     assert all(row["status"] == "passed" for row in rows)
     assert all(row["status"] == "passed" for row in roundtrip)
     assert all(item.absolute_error_pa == 0 for item in encoded)
+    sidecar = json.loads(Path(str(paths[0]) + ".metadata.json").read_text())
+    assert sidecar["elapsed_time_seconds"] == [0.0]
+    assert sidecar["technical_epoch_utc"] == "2000-01-01T00:00:00Z"
 
 
 def test_grib1_bitmap_roundtrip_preserves_missing_value(tmp_path):

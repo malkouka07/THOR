@@ -115,7 +115,13 @@ def write_grib1_dataset(
                         )
         for path in unique:
             temporary[path].replace(path)
-            write_sidecar(path, dataset, edition=1, level_encoding=level_encoding)
+            write_sidecar(
+                path,
+                dataset,
+                edition=1,
+                level_encoding=level_encoding,
+                technical_epoch=technical_epoch,
+            )
     except Exception:
         for path in temporary.values():
             if path.exists():

@@ -17,6 +17,7 @@ from ..processing.grid import horizontal_remap, normalize_source_grid, target_re
 from ..processing.pressure import (
     PressureMapping,
     area_weighted_reference,
+    derive_hpa_aligned_levels,
     derive_integer_levels,
     interpolate_log_pressure,
 )
@@ -129,6 +130,7 @@ def read_processed_hdf5(
     lat_step: float = 4.0,
     lon_step: float = 4.0,
     vertical_velocity_mode: str = "strict",
+    pressure_level_policy: str = "source",
     planet_file: Path | None = None,
     grid_file: Path | None = None,
 ) -> tuple[CanonicalDataset, list[PressureMapping]]:
@@ -245,37 +247,55 @@ def read_processed_hdf5(
     if pressure_is_1d:
         remapped_pressure = pressure
         reference = pressure
-        target_pressure, mapping = derive_integer_levels(reference)
-        # Rounding a boundary outward would require extrapolation. Clamp only
-        # that boundary inward; a fixed 1-D Mjolnir pgrid has no inter-column
-        # variability requiring the height-grid safety margin.
-        if reference[0] > reference[-1]:
-            if target_pressure[0] > reference[0]:
-                target_pressure[0] = int(np.floor(reference[0]))
-            if target_pressure[-1] < reference[-1]:
-                target_pressure[-1] = int(np.ceil(reference[-1]))
+        if pressure_level_policy == "hpa-aligned":
+            target_pressure, mapping = derive_hpa_aligned_levels(reference)
+        elif pressure_level_policy == "source":
+            target_pressure, mapping = derive_integer_levels(reference)
+            # Rounding a boundary outward would require extrapolation. Clamp only
+            # that boundary inward; a fixed 1-D Mjolnir pgrid has no inter-column
+            # variability requiring the height-grid safety margin.
+            if reference[0] > reference[-1]:
+                if target_pressure[0] > reference[0]:
+                    target_pressure[0] = int(np.floor(reference[0]))
+                if target_pressure[-1] < reference[-1]:
+                    target_pressure[-1] = int(np.ceil(reference[-1]))
+            else:
+                if target_pressure[0] < reference[0]:
+                    target_pressure[0] = int(np.ceil(reference[0]))
+                if target_pressure[-1] > reference[-1]:
+                    target_pressure[-1] = int(np.floor(reference[-1]))
+            mapping = [
+                replace(
+                    item,
+                    target_level_pa=int(target_pressure[index]),
+                    absolute_error_pa=abs(float(target_pressure[index]) - float(reference[index])),
+                    relative_error=abs(float(target_pressure[index]) - float(reference[index])) / float(reference[index]),
+                    interpolation_performed=not np.isclose(target_pressure[index], reference[index], atol=1e-12, rtol=0),
+                    interpolation_method="linear in log(p)" if not np.isclose(target_pressure[index], reference[index], atol=1e-12, rtol=0) else "none",
+                )
+                for index, item in enumerate(mapping)
+            ]
         else:
-            if target_pressure[0] < reference[0]:
-                target_pressure[0] = int(np.ceil(reference[0]))
-            if target_pressure[-1] > reference[-1]:
-                target_pressure[-1] = int(np.floor(reference[-1]))
-        mapping = [
-            replace(
-                item,
-                target_level_pa=int(target_pressure[index]),
-                absolute_error_pa=abs(float(target_pressure[index]) - float(reference[index])),
-                relative_error=abs(float(target_pressure[index]) - float(reference[index])) / float(reference[index]),
-                interpolation_performed=not np.isclose(target_pressure[index], reference[index], atol=1e-12, rtol=0),
-                interpolation_method="linear in log(p)" if not np.isclose(target_pressure[index], reference[index], atol=1e-12, rtol=0) else "none",
+            raise ConversionError(
+                f"unsupported pressure-level policy: {pressure_level_policy}"
             )
-            for index, item in enumerate(mapping)
-        ]
     else:
         remapped_pressure = horizontal_remap(
             pressure, lat, lon, target_lat, target_lon, pole_kind="scalar"
         )
         reference = area_weighted_reference(pressure, lat)
-        target_pressure, mapping = derive_integer_levels(reference, remapped_pressure)
+        if pressure_level_policy == "hpa-aligned":
+            target_pressure, mapping = derive_hpa_aligned_levels(
+                reference, remapped_pressure
+            )
+        elif pressure_level_policy == "source":
+            target_pressure, mapping = derive_integer_levels(
+                reference, remapped_pressure
+            )
+        else:
+            raise ConversionError(
+                f"unsupported pressure-level policy: {pressure_level_policy}"
+            )
 
     final: dict[str, np.ndarray] = {}
     units = {
@@ -299,7 +319,11 @@ def read_processed_hdf5(
             detected_vector_stage="geographic_u_v_already_rotated" if name != "omega" else "not_applicable",
             detected_vertical_stage=vertical_stage,
             detected_units=units[name],
-            required_next_step="target-grid adjustment, integer-Pa normalization, GRIB encoding",
+            required_next_step=(
+                "target-grid adjustment, log-pressure interpolation to exact integer-hPa surfaces, GRIB encoding"
+                if pressure_level_policy == "hpa-aligned"
+                else "target-grid adjustment, integer-Pa normalization, GRIB encoding"
+            ),
             skipped_as_already_completed="native-grid interpolation and vector rotation",
             evidence=(
                 "Latitude/Longitude plus U/V structure; origin/mjolnir_advance:mjolnir/hamarr.py "
@@ -324,6 +348,15 @@ def read_processed_hdf5(
             "source_grid": f"regular lat-lon {lat.size}x{lon.size}",
             "target_grid": f"regular lat-lon {target_lat.size}x{target_lon.size}",
             "pressure_source": pressure_source,
+            "pressure_level_policy": pressure_level_policy,
+            "vertical_interpolation_method": (
+                "piecewise linear in log(p)" if any(
+                    item.interpolation_performed for item in mapping
+                ) else "none"
+            ),
+            "vertical_interpolation_count": int(
+                any(item.interpolation_performed for item in mapping)
+            ),
             "omega_method": omega_method,
             "time_source": time_source,
             "explicit_grid_file": str(grid_file.expanduser().resolve()) if grid_file else None,

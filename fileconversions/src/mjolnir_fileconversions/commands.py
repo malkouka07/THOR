@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
-from contextlib import ExitStack
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -16,7 +14,7 @@ from .discovery import (
     write_classification_csv,
 )
 from .errors import ConversionError, PressureEncodingError
-from .readers.grib2_reader import iter_grib2
+from .readers.grib2_reader import read_grib2_collection
 from .readers.hdf5_reader import read_processed_hdf5_collection
 from .readers.netcdf_reader import read_netcdf_collection
 from .validation.grib_validation import roundtrip_against_canonical, validate_grib_files
@@ -27,7 +25,7 @@ from .validation.reporting import (
     write_pressure_mapping,
     write_processing_stages,
 )
-from .writers.grib1_writer import write_grib1_dataset, write_grib1_message
+from .writers.grib1_writer import write_grib1_dataset
 from .writers.grib_common import EncodedLevel, encode_grib1_level
 from .writers.grib2_writer_adapter import write_grib2_dataset
 from .writers.netcdf_diagnostic_writer import write_netcdf_diagnostic
@@ -176,8 +174,11 @@ def _write_variable_mapping(report_dir: Path, dataset) -> None:
             {
                 "canonical_variable": name,
                 "units": dataset.units[name],
-                "grib1_parameter": {"eastward_wind": 33, "northward_wind": 34, "omega": 39}[name],
+                "grib1_table_version": 2,
+                "grib1_wire_parameter": {"eastward_wind": 33, "northward_wind": 34, "omega": 39}[name],
+                "eccodes_param_id": {"eastward_wind": 131, "northward_wind": 132, "omega": 135}[name],
                 "grib2_parameter": {"eastward_wind": "0/2/2", "northward_wind": "0/2/3", "omega": "0/2/8"}[name],
+                "packing": "grid_simple; bitsPerValue set by --bits-per-value",
                 "omega_method": dataset.metadata.get("omega_method", "not applicable"),
                 "status": "mapped",
             }
@@ -265,6 +266,7 @@ def convert_hdf5(args, *, edition: int) -> list[Path]:
         lat_step=args.lat_step,
         lon_step=args.lon_step,
         vertical_velocity_mode=args.vertical_velocity_mode,
+        pressure_level_policy=args.pressure_level_policy,
         planet_file=args.planet_file,
         grid_file=args.grid_file,
     )
@@ -340,6 +342,7 @@ def convert_netcdf(args) -> list[Path]:
         vertical_velocity_mode=args.vertical_velocity_mode,
         gravity_m_s2=args.gravity,
         time_indices=_requested_time_indices(args),
+        pressure_level_policy=args.pressure_level_policy,
     )
     write_processing_stages(report_dir / "processing_stage_detection.csv", dataset.stages)
     write_pressure_mapping(report_dir / "pressure_level_mapping.csv", pressure_mapping)
@@ -383,7 +386,7 @@ def convert_netcdf(args) -> list[Path]:
 
 
 def convert_grib2(args) -> list[Path]:
-    """Decode and re-encode each GRIB2 message with an explicit mapping."""
+    """Convert complete GRIB2 pressure stacks with real vertical interpolation."""
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     report_dir = output_dir / "reports"
@@ -400,116 +403,114 @@ def convert_grib2(args) -> list[Path]:
         paths = paths[: args.max_files]
     elif args.test_mode:
         paths = paths[:3]
-    streams: dict[Path, object] = {}
-    temporary: dict[Path, Path] = {}
-    mapping_rows: list[dict[str, object]] = []
-    outputs: set[Path] = set()
     requested_time_indices = _requested_time_indices(args)
-    time_index_by_valid: dict[object, int] = {}
-    error: Exception | None = None
-    try:
-        with ExitStack() as stack:
-            for source in paths:
-                for message in iter_grib2(source, on_unsupported=args.on_unsupported):
-                    if message.valid_datetime not in time_index_by_valid:
-                        time_index_by_valid[message.valid_datetime] = len(time_index_by_valid)
-                    message_time_index = time_index_by_valid[message.valid_datetime]
-                    if (
-                        requested_time_indices is not None
-                        and message_time_index not in requested_time_indices
-                    ):
-                        continue
-                    meta = message.metadata
-                    row = {
-                        "source_file": str(source),
-                        "message_index": message.message_index,
-                        "source_discipline": meta.get("discipline"),
-                        "source_category": meta.get("parameterCategory"),
-                        "source_parameter_number": meta.get("parameterNumber"),
-                        "source_short_name": meta.get("shortName"),
-                        "source_name": meta.get("name"),
-                        "source_units": meta.get("units"),
-                        "source_type_of_level": meta.get("typeOfLevel"),
-                        "source_level": meta.get("level"),
-                        "target_table_version": 2,
-                        "target_parameter": {"eastward_wind": 33, "northward_wind": 34, "omega": 39}.get(message.field_name, ""),
-                        "target_units": "Pa s-1" if message.field_name == "omega" else "m s-1",
-                        "target_type_of_level": "isobaricInhPa" if args.level_encoding != "ecmwf-pa" else "isobaricInPa",
-                        "target_level": message.pressure_level_pa,
-                        "mapping_status": "skipped" if not message.field_name else "mapped",
-                        "information_loss": "unsupported parameter skipped" if not message.field_name else "GRIB2 metadata not representable in GRIB1 is recorded here",
-                        "notes": "",
-                    }
-                    mapping_rows.append(row)
-                    if not message.field_name:
-                        continue
-                    if args.file_layout == "per-variable":
-                        target = output_dir / f"{source.stem}_{message.field_name}.grib1"
-                    elif args.file_layout == "per-time":
-                        target = output_dir / f"{source.stem}_{message.valid_datetime:%Y%m%dT%H%M}.grib1"
-                    else:
-                        target = output_dir / f"{source.stem}_combined.grib1"
-                    if target not in streams:
-                        if target.exists() and not args.overwrite:
-                            raise FileExistsError(f"Refusing to overwrite {target}")
-                        temp = target.with_suffix(target.suffix + ".partial")
-                        if temp.exists():
-                            temp.unlink()
-                        temporary[target] = temp
-                        streams[target] = stack.enter_context(temp.open("wb"))
-                    try:
-                        encoded = write_grib1_message(
-                            streams[target],
-                            field_name=message.field_name,
-                            values=message.values,
-                            latitude=message.latitude,
-                            longitude=message.longitude,
-                            pressure_level_pa=message.pressure_level_pa,
-                            valid=message.valid_datetime,
-                            level_encoding=args.level_encoding,
-                            max_absolute_error_pa=args.max_level_absolute_error_pa,
-                            max_relative_error=args.max_level_relative_error,
-                            bits_per_value=args.bits_per_value,
-                        )
-                    except Exception as exc:
-                        row["mapping_status"] = "blocked"
-                        row["notes"] = str(exc)
-                        raise
-                    row["target_level"] = encoded.effective_pa
-                    if encoded.absolute_error_pa:
-                        row["information_loss"] = (
-                            f"pressure level rounded by {encoded.absolute_error_pa} Pa; "
-                            "other GRIB2-only metadata is recorded in this row"
-                        )
-                    outputs.add(target)
-            if requested_time_indices is not None:
-                available = set(range(len(time_index_by_valid)))
-                missing = set(requested_time_indices) - available
-                if missing:
-                    raise ConversionError(
-                        f"requested GRIB2 time indices were not found: {sorted(missing)}"
+    dataset, pressure_mapping, messages = read_grib2_collection(
+        paths,
+        on_unsupported=args.on_unsupported,
+        time_indices=requested_time_indices,
+        pressure_level_policy=args.pressure_level_policy,
+    )
+    selected_valid_times = set(dataset.metadata["absolute_valid_times_utc"])
+    target_levels = " ".join(str(int(level)) for level in dataset.level_pa)
+    vertical_interpolation_performed = any(
+        item.interpolation_performed for item in pressure_mapping
+    )
+    parameter_ids = {"eastward_wind": 131, "northward_wind": 132, "omega": 135}
+    wire_parameters = {"eastward_wind": 33, "northward_wind": 34, "omega": 39}
+    mapping_rows: list[dict[str, object]] = []
+    for message in messages:
+        meta = message.metadata
+        valid_text = message.valid_datetime.isoformat().replace("+00:00", "Z")
+        unsupported = not message.field_name
+        filtered = not unsupported and valid_text not in selected_valid_times
+        mapping_rows.append(
+            {
+                "source_file": str(message.source_file),
+                "message_index": message.message_index,
+                "source_valid_time": valid_text,
+                "source_discipline": meta.get("discipline"),
+                "source_category": meta.get("parameterCategory"),
+                "source_parameter_number": meta.get("parameterNumber"),
+                "source_short_name": meta.get("shortName"),
+                "source_name": meta.get("name"),
+                "source_units": meta.get("units"),
+                "source_type_of_level": meta.get("typeOfLevel"),
+                "source_level_pa": message.pressure_level_pa,
+                "target_table_version": 2,
+                "target_wire_parameter": wire_parameters.get(message.field_name, ""),
+                "target_eccodes_param_id": parameter_ids.get(message.field_name, ""),
+                "target_units": (
+                    "Pa s-1" if message.field_name == "omega" else "m s-1"
+                ),
+                "target_type_of_level": (
+                    "isobaricInPa"
+                    if args.level_encoding == "ecmwf-pa"
+                    else "isobaricInhPa"
+                ),
+                "target_levels_pa": target_levels if not unsupported else "",
+                "mapping_status": (
+                    "skipped unsupported"
+                    if unsupported
+                    else "filtered by time selection"
+                    if filtered
+                    else (
+                        "stack interpolated and mapped"
+                        if vertical_interpolation_performed
+                        else "stack mapped without vertical interpolation"
                     )
-    except Exception as exc:
-        error = exc
-    finally:
-        write_csv(report_dir / "grib2_to_grib1_mapping.csv", mapping_rows)
-    if error is not None:
-        for temp in temporary.values():
-            if temp.exists():
-                temp.unlink()
-        raise error
-    for target, temp in temporary.items():
-        temp.replace(target)
-        sidecar = {
-            "source_files": [str(path) for path in paths],
-            "grib_edition": 1,
-            "level_encoding": args.level_encoding,
-            "review_status": "pending manual review by Márkó",
-            "generated_with": "OpenAI Codex assistance",
-        }
-        Path(str(target) + ".metadata.json").write_text(json.dumps(sidecar, indent=2) + "\n", encoding="utf-8")
-    result = sorted(outputs)
-    _post_validate(result, output_dir, 1)
+                ),
+                "information_loss": (
+                    "unsupported GRIB2 parameter skipped"
+                    if unsupported
+                    else "GRIB2-only metadata is not encoded in GRIB1"
+                ),
+                "notes": (
+                    (
+                        "Each target value is evaluated by linear interpolation in log(p); "
+                        "this is not a source-message-to-target-message relabeling."
+                        if vertical_interpolation_performed
+                        else "Source and target pressure levels are identical; values are copied."
+                    )
+                    if not unsupported and not filtered
+                    else ""
+                ),
+            }
+        )
+    write_csv(report_dir / "grib2_to_grib1_mapping.csv", mapping_rows)
+    write_processing_stages(report_dir / "processing_stage_detection.csv", dataset.stages)
+    write_pressure_mapping(report_dir / "pressure_level_mapping.csv", pressure_mapping)
+    _write_variable_mapping(report_dir, dataset)
+
+    preflight, encoding_errors = _preflight_grib1_levels(args, dataset.level_pa)
+    write_pressure_mapping(
+        report_dir / "pressure_level_mapping.csv",
+        pressure_mapping,
+        preflight,
+        encoding_errors,
+        args.level_encoding,
+    )
+    _raise_first_level_error(dataset.level_pa, encoding_errors)
+    result, encoded = write_grib1_dataset(
+        dataset,
+        output_dir,
+        file_layout=args.file_layout,
+        level_encoding=args.level_encoding,
+        overwrite=args.overwrite,
+        max_absolute_error_pa=args.max_level_absolute_error_pa,
+        max_relative_error=args.max_level_relative_error,
+        bits_per_value=args.bits_per_value,
+        technical_epoch=args.technical_epoch,
+    )
+    write_pressure_mapping(
+        report_dir / "pressure_level_mapping.csv", pressure_mapping, encoded
+    )
+    _post_validate(
+        result,
+        output_dir,
+        1,
+        dataset=dataset,
+        technical_epoch=args.technical_epoch,
+    )
     logger.info("Converted %d GRIB2 file(s) into %d GRIB1 file(s)", len(paths), len(result))
     return result
 

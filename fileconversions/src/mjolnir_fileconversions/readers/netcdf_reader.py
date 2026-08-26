@@ -16,7 +16,13 @@ from ..processing.grid import (
     normalize_source_grid,
     target_regular_grid,
 )
-from ..processing.pressure import PressureMapping, derive_integer_levels, interpolate_log_pressure, to_pa
+from ..processing.pressure import (
+    PressureMapping,
+    derive_hpa_aligned_levels,
+    derive_integer_levels,
+    interpolate_log_pressure,
+    to_pa,
+)
 from ..processing.vertical_velocity import resolve_omega
 
 
@@ -100,6 +106,7 @@ def read_netcdf(
     vertical_velocity_mode: str = "strict",
     gravity_m_s2: float | None = None,
     time_indices: Sequence[int] | None = None,
+    pressure_level_policy: str = "source",
 ) -> tuple[CanonicalDataset, list[PressureMapping]]:
     path = path.expanduser().resolve()
     requested = _canonical_requested(variables)
@@ -195,9 +202,17 @@ def read_netcdf(
             )
         else:
             mapped[name] = values
-    # A CF pressure coordinate is already the completed vertical stage. Integer
-    # Pa labels need no safety-margin shift and must not be interpolated again.
-    target_level, mapping = derive_integer_levels(source_level)
+    # Derive the final target directly from the original CF coordinate.  This
+    # deliberately performs one vertical interpolation, never an intermediate
+    # source-float -> integer-Pa -> integer-hPa double interpolation.
+    if pressure_level_policy == "hpa-aligned":
+        target_level, mapping = derive_hpa_aligned_levels(source_level)
+    elif pressure_level_policy == "source":
+        target_level, mapping = derive_integer_levels(source_level)
+    else:
+        raise ConversionError(
+            f"unsupported pressure-level policy: {pressure_level_policy}"
+        )
     final: dict[str, np.ndarray] = {}
     for name in requested:
         if name not in mapped:
@@ -225,7 +240,15 @@ def read_netcdf(
             detected_vector_stage="CF geographic components",
             detected_vertical_stage="pressure_coordinate",
             detected_units=units[name],
-            required_next_step="GRIB encoding" if not need_regrid else "target-grid adjustment and GRIB encoding",
+            required_next_step=(
+                "log-pressure interpolation to exact integer-hPa surfaces and GRIB encoding"
+                if pressure_level_policy == "hpa-aligned" and not need_regrid
+                else "target-grid adjustment, log-pressure interpolation to exact integer-hPa surfaces, and GRIB encoding"
+                if pressure_level_policy == "hpa-aligned"
+                else "GRIB encoding"
+                if not need_regrid
+                else "target-grid adjustment and GRIB encoding"
+            ),
             skipped_as_already_completed="native-grid interpolation, vector rotation, pressure derivation",
             evidence="CF coordinate/standard_name/dimension metadata",
         )
@@ -243,6 +266,15 @@ def read_netcdf(
         metadata={
             "source_kind": "netcdf",
             "omega_method": omega_method,
+            "pressure_level_policy": pressure_level_policy,
+            "vertical_interpolation_method": (
+                "piecewise linear in log(p)" if any(
+                    item.interpolation_performed for item in mapping
+                ) else "none"
+            ),
+            "vertical_interpolation_count": int(
+                any(item.interpolation_performed for item in mapping)
+            ),
             "source_time_units_preserved_as_elapsed_seconds": True,
             "review_status": "pending manual review by Márkó",
         },

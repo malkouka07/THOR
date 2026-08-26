@@ -40,21 +40,24 @@ def write_pressure_mapping(
         row = item.as_dict()
         level = by_requested.get(item.target_level_pa)
         if level:
+            encoding_note = (
+                f"effective GRIB1 pressure {level.effective_pa} Pa; "
+                f"encoding error {level.absolute_error_pa} Pa"
+            )
             row.update(
                 grib1_level_encoding=f"{level.type_of_level}:{level.encoded_level}",
                 grib1_exactly_representable=level.absolute_error_pa == 0,
                 compatibility_mode=level.mode,
-                notes=(
-                    f"effective GRIB1 pressure {level.effective_pa} Pa; "
-                    f"encoding error {level.absolute_error_pa} Pa"
-                ),
+                notes="; ".join(filter(None, (item.notes, encoding_note))),
             )
         elif encoding_errors and item.target_level_pa in encoding_errors:
             row.update(
                 grib1_level_encoding="blocked before writer",
                 grib1_exactly_representable=False,
                 compatibility_mode=compatibility_mode or "unknown",
-                notes=encoding_errors[item.target_level_pa],
+                notes="; ".join(
+                    filter(None, (item.notes, encoding_errors[item.target_level_pa]))
+                ),
             )
         rows.append(row)
     write_csv(path, rows, list(PressureMapping.__dataclass_fields__))

@@ -24,6 +24,9 @@ class PressureMapping:
     grib1_level_encoding: str = "pending writer policy"
     grib1_exactly_representable: bool = False
     compatibility_mode: str = "pending"
+    target_selection_policy: str = "source"
+    target_emitted: bool = True
+    mapping_status: str = "emitted"
     notes: str = ""
 
     def as_dict(self) -> dict[str, object]:
@@ -108,6 +111,101 @@ def derive_integer_levels(
     return target, rows
 
 
+def derive_hpa_aligned_levels(
+    reference_pa: np.ndarray,
+    column_pressure_pa: np.ndarray | None = None,
+) -> tuple[np.ndarray, list[PressureMapping]]:
+    """Derive source-following, exact GRIB1 hPa surfaces without extrapolation.
+
+    Each reference level is rounded to the nearest positive integer hPa. The
+    result is clamped to the pressure interval shared by every input column,
+    and duplicate targets are emitted only once. Collision rows remain in the
+    mapping report so loss of sub-hPa vertical resolution is explicit.
+    """
+    reference = np.asarray(reference_pa, dtype=np.float64)
+    if reference.ndim != 1 or reference.size == 0:
+        raise ConversionError("reference pressure must be a non-empty 1-D coordinate")
+    if np.any(~np.isfinite(reference)) or np.any(reference <= 0):
+        raise ConversionError("reference pressure contains non-positive or non-finite values")
+    differences = np.diff(reference)
+    if differences.size and not (
+        np.all(differences > 0) or np.all(differences < 0)
+    ):
+        raise ConversionError("reference pressure is not strictly monotonic")
+
+    if column_pressure_pa is None:
+        common_min_pa = float(np.min(reference))
+        common_max_pa = float(np.max(reference))
+    else:
+        columns = np.asarray(column_pressure_pa, dtype=np.float64)
+        if columns.shape[-1] != reference.size:
+            raise ConversionError("column pressure level dimension mismatch")
+        if np.any(~np.isfinite(columns)) or np.any(columns <= 0):
+            raise ConversionError("column pressure contains non-positive or non-finite values")
+        common_min_pa = float(np.max(np.min(columns, axis=-1)))
+        common_max_pa = float(np.min(np.max(columns, axis=-1)))
+
+    minimum_hpa = max(1, int(math.ceil(common_min_pa / 100.0)))
+    maximum_hpa = int(math.floor(common_max_pa / 100.0))
+    if minimum_hpa > maximum_hpa:
+        raise ConversionError(
+            "no positive integer-hPa surface lies inside every pressure column"
+        )
+
+    emitted_hpa: list[int] = []
+    seen: set[int] = set()
+    rows: list[PressureMapping] = []
+    for index, source in enumerate(reference):
+        # Exact half-hPa ties go toward lower pressure.  This is explicit and
+        # avoids Python's platform-independent but unsuitable ties-to-even rule.
+        nearest_hpa = int(math.ceil(float(source) / 100.0 - 0.5))
+        target_hpa = min(max(nearest_hpa, minimum_hpa), maximum_hpa)
+        target_pa = target_hpa * 100
+        collision = target_hpa in seen
+        if not collision:
+            emitted_hpa.append(target_hpa)
+            seen.add(target_hpa)
+        rows.append(
+            PressureMapping(
+                source_level=str(index),
+                source_units="Pa",
+                source_level_pa=float(source),
+                target_level_pa=target_pa,
+                absolute_error_pa=abs(float(target_pa) - float(source)),
+                relative_error=abs(float(target_pa) - float(source)) / float(source),
+                interpolation_performed=not math.isclose(
+                    source, target_pa, abs_tol=1e-12
+                ),
+                interpolation_method=(
+                    "linear in log(p)"
+                    if not math.isclose(source, target_pa, abs_tol=1e-12)
+                    else "none"
+                ),
+                grib2_level_encoding="isobaricInPa",
+                grib1_level_encoding=f"isobaricInhPa:{target_hpa}",
+                grib1_exactly_representable=True,
+                compatibility_mode="hpa-aligned",
+                target_selection_policy="hpa-aligned",
+                target_emitted=not collision,
+                mapping_status="omitted_duplicate_target" if collision else "emitted",
+                notes=(
+                    "source level omitted: collides with an already selected integer-hPa surface"
+                    if collision
+                    else "target emitted once; field values are interpolated to this exact surface"
+                ),
+            )
+        )
+
+    target = np.asarray(emitted_hpa, dtype=np.int64) * 100
+    if target.size == 0:
+        raise ConversionError("hPa alignment produced no target pressure levels")
+    if target.size > 1 and not (
+        np.all(np.diff(target) > 0) or np.all(np.diff(target) < 0)
+    ):
+        raise ConversionError("hPa-aligned targets are not strictly monotonic")
+    return target, rows
+
+
 def interpolate_log_pressure(
     field: np.ndarray,
     source_pressure_pa: np.ndarray,
@@ -121,8 +219,8 @@ def interpolate_log_pressure(
         pressure = np.broadcast_to(pressure, values.shape)
     if values.shape != pressure.shape:
         raise ConversionError(f"field/pressure shape mismatch: {values.shape} vs {pressure.shape}")
-    if np.any(~np.isfinite(values)) or np.any(~np.isfinite(pressure)):
-        raise ConversionError("field or pressure contains NaN/Inf before interpolation")
+    if np.any(np.isinf(values)) or np.any(~np.isfinite(pressure)):
+        raise ConversionError("field contains Inf or pressure contains NaN/Inf before interpolation")
     output = np.empty(values.shape[:-1] + (target.size,), dtype=np.float64)
     for index in np.ndindex(values.shape[:-1]):
         pcol = pressure[index]
