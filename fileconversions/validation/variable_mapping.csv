@@ -1,0 +1,4 @@
+canonical_variable,units,grib1_table_version,grib1_parameter,grib2_discipline,grib2_category,grib2_parameter,source_evidence,status,review_status
+eastward_wind,m s-1,2,33,0,2,2,Mjolnir geographic U after upstream rotation,mapped,pending manual review by Márkó
+northward_wind,m s-1,2,34,0,2,3,Mjolnir geographic V after upstream rotation,mapped,pending manual review by Márkó
+omega,Pa s-1,2,39,0,2,8,native Pa/s or explicit hydrostatic -rho*g*w; never relabeled geometric W,mapped with explicit physical mode,pending manual review by Márkó

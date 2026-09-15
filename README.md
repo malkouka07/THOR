@@ -1,3 +1,16 @@
+## Fork Notes ##
+
+This repository is an unofficial fork of [exoclime/THOR](https://github.com/exoclime/THOR).
+
+Additional tools and notes in this fork:
+- `mjolnir/pgrid_merge` for merging fragmented pressure-grid regrids
+- fork-specific plotting instructions in `docs/pgrid_merge.md`
+
+For upstream plotting background, see:
+- https://github.com/exoclime/THOR/wiki/Python-plotting
+
+
+
 # THOR #
 
 ![CI](https://github.com/exoclime/THOR/workflows/CI/badge.svg)

@@ -1,0 +1,16 @@
+variables:
+  eastward_wind:
+    aliases: [U, u, eastward_wind, zonal_wind]
+    units: "m s-1"
+    grib1_parameter: 33
+    grib2_parameter: [0, 2, 2]
+  northward_wind:
+    aliases: [V, v, northward_wind, meridional_wind]
+    units: "m s-1"
+    grib1_parameter: 34
+    grib2_parameter: [0, 2, 3]
+  omega:
+    aliases: [omega, lagrangian_tendency_of_air_pressure]
+    units: "Pa s-1"
+    grib1_parameter: 39
+    grib2_parameter: [0, 2, 8]
