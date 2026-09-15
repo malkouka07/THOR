@@ -56,6 +56,101 @@ class ProcessingStage:
 
 
 @dataclass
+class SourceReferenceDataset:
+    """Original regular-grid HDF5 fields retained for reconstruction checks.
+
+    Fields and pressure use ``(time, source_level, latitude, longitude)``.  A
+    four-dimensional pressure array also represents height-grid products whose
+    pressure varies from column to column.
+    """
+
+    time_seconds: np.ndarray
+    latitude: np.ndarray
+    longitude: np.ndarray
+    pressure_pa: np.ndarray
+    fields: dict[str, np.ndarray]
+    units: dict[str, str]
+    source_files: list[Path] = field(default_factory=list)
+    source_dataset_names: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.time_seconds = np.asarray(self.time_seconds, dtype=np.float64)
+        self.latitude = np.asarray(self.latitude, dtype=np.float64)
+        self.longitude = np.asarray(self.longitude, dtype=np.float64)
+        self.pressure_pa = np.asarray(self.pressure_pa, dtype=np.float64)
+        self.fields = {
+            name: np.asarray(values, dtype=np.float64)
+            for name, values in self.fields.items()
+        }
+        self.validate()
+
+    @property
+    def shape(self) -> tuple[int, int, int, int]:
+        return self.pressure_pa.shape
+
+    def validate(self) -> None:
+        if self.time_seconds.ndim != 1 or self.time_seconds.size == 0:
+            raise ConversionError("source-reference time must be non-empty and 1-D")
+        if self.time_seconds.size > 1 and np.any(np.diff(self.time_seconds) <= 0):
+            raise ConversionError("source-reference time must be strictly increasing")
+        for name, coordinate in (
+            ("latitude", self.latitude),
+            ("longitude", self.longitude),
+        ):
+            if coordinate.ndim != 1 or coordinate.size == 0:
+                raise ConversionError(
+                    f"source-reference {name} must be non-empty and 1-D"
+                )
+            if np.any(~np.isfinite(coordinate)) or (
+                coordinate.size > 1 and np.any(np.diff(coordinate) <= 0)
+            ):
+                raise ConversionError(
+                    f"source-reference {name} must be finite and strictly increasing"
+                )
+        if self.pressure_pa.ndim != 4:
+            raise ConversionError(
+                "source-reference pressure must use time, level, latitude, longitude"
+            )
+        expected = (
+            self.time_seconds.size,
+            self.pressure_pa.shape[1],
+            self.latitude.size,
+            self.longitude.size,
+        )
+        if self.pressure_pa.shape != expected:
+            raise ConversionError(
+                f"source-reference pressure shape {self.pressure_pa.shape} != {expected}"
+            )
+        if np.any(~np.isfinite(self.pressure_pa)) or np.any(self.pressure_pa <= 0):
+            raise ConversionError(
+                "source-reference pressure contains non-positive or non-finite values"
+            )
+        pressure_steps = np.diff(self.pressure_pa, axis=1)
+        if pressure_steps.size:
+            descending = np.all(pressure_steps < 0, axis=1)
+            ascending = np.all(pressure_steps > 0, axis=1)
+            if not np.all(descending | ascending):
+                raise ConversionError(
+                    "source-reference pressure is not strictly monotonic in every column"
+                )
+        for name, values in self.fields.items():
+            if values.shape != expected:
+                raise ConversionError(
+                    f"source-reference {name} shape {values.shape} != {expected}"
+                )
+            if name not in self.units:
+                raise ConversionError(f"missing source-reference unit for {name}")
+            if np.any(np.isinf(values)):
+                raise ConversionError(f"source-reference {name} contains Inf")
+            if name == "air_temperature":
+                finite = values[np.isfinite(values)]
+                if np.any(finite <= 0):
+                    raise ConversionError(
+                        "source-reference absolute air_temperature must be positive Kelvin"
+                    )
+
+
+@dataclass
 class CanonicalDataset:
     """Fields on ``(time, level, latitude, longitude)`` pressure coordinates."""
 
@@ -127,6 +222,19 @@ class CanonicalDataset:
                 raise ConversionError(f"{name} contains Inf")
         if "omega" in self.fields and self.units.get("omega") != "Pa s-1":
             raise ConversionError("canonical omega must use units 'Pa s-1'")
+        if (
+            "air_temperature" in self.fields
+            and self.units.get("air_temperature") != "K"
+        ):
+            raise ConversionError("canonical air_temperature must use units 'K'")
+        if "air_temperature" in self.fields:
+            finite_temperature = self.fields["air_temperature"][
+                np.isfinite(self.fields["air_temperature"])
+            ]
+            if np.any(finite_temperature <= 0):
+                raise ConversionError(
+                    "canonical absolute air_temperature must be positive Kelvin"
+                )
 
     def subset_fields(self, names: list[str]) -> "CanonicalDataset":
         missing = set(names) - set(self.fields)

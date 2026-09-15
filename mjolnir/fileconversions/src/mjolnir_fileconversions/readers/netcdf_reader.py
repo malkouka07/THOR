@@ -36,9 +36,24 @@ COORD_ALIASES = {
 FIELD_ALIASES = {
     "eastward_wind": {"u", "U", "eastward_wind", "zonal_wind"},
     "northward_wind": {"v", "V", "northward_wind", "meridional_wind"},
+    "air_temperature": {
+        "t",
+        "T",
+        "temp",
+        "temperature",
+        "Temperature",
+        "air_temperature",
+    },
     "omega": {"omega", "lagrangian_tendency_of_air_pressure"},
     "geometric_w": {"w", "W", "upward_air_velocity", "vertical_velocity"},
     "density": {"rho", "Rho", "air_density", "density"},
+}
+
+CANONICAL_UNITS = {
+    "eastward_wind": "m s-1",
+    "northward_wind": "m s-1",
+    "air_temperature": "K",
+    "omega": "Pa s-1",
 }
 
 
@@ -59,6 +74,7 @@ def _field(dataset: xr.Dataset, role: str) -> str | None:
     standards = {
         "eastward_wind": "eastward_wind",
         "northward_wind": "northward_wind",
+        "air_temperature": "air_temperature",
         "omega": "lagrangian_tendency_of_air_pressure",
         "geometric_w": "upward_air_velocity",
         "density": "air_density",
@@ -89,17 +105,61 @@ def _time_seconds(values: np.ndarray, units: str) -> np.ndarray:
 
 
 def _canonical_requested(names: Sequence[str]) -> list[str]:
-    aliases = {"u": "eastward_wind", "v": "northward_wind", "w": "omega", "omega": "omega", "eastward_wind": "eastward_wind", "northward_wind": "northward_wind"}
+    aliases = {
+        "u": "eastward_wind",
+        "v": "northward_wind",
+        "w": "omega",
+        "t": "air_temperature",
+        "T": "air_temperature",
+        "temp": "air_temperature",
+        "temperature": "air_temperature",
+        "Temperature": "air_temperature",
+        "air_temperature": "air_temperature",
+        "omega": "omega",
+        "eastward_wind": "eastward_wind",
+        "northward_wind": "northward_wind",
+    }
     try:
         return list(dict.fromkeys(aliases[name] for name in names))
     except KeyError as exc:
         raise ConversionError(f"unsupported requested variable: {exc.args[0]}") from exc
 
 
+def _load_field(
+    dataset: xr.Dataset,
+    source_name: str,
+    *,
+    selected_time_indices: np.ndarray,
+    time_name: str,
+    level_name: str,
+    latitude_name: str,
+    longitude_name: str,
+) -> np.ndarray:
+    """Load one selected four-dimensional field in canonical dimension order."""
+    data = dataset[source_name].isel({time_name: selected_time_indices})
+    required_dims = {time_name, level_name, latitude_name, longitude_name}
+    missing_dims = required_dims - set(data.dims)
+    if missing_dims:
+        raise ConversionError(f"{source_name} lacks dimensions {sorted(missing_dims)}")
+    return np.asarray(
+        data.transpose(time_name, level_name, latitude_name, longitude_name).values,
+        dtype=np.float64,
+    )
+
+
+def _require_kelvin(dataset: xr.Dataset, source_name: str) -> None:
+    units = str(dataset[source_name].attrs.get("units", "")).strip()
+    if units != "K" and units.casefold() not in {"kelvin", "kelvins"}:
+        raise ConversionError(
+            f"NetCDF air temperature {source_name!r} must use Kelvin units ('K'); "
+            f"got {units!r}"
+        )
+
+
 def read_netcdf(
     path: Path,
     *,
-    variables: Sequence[str] = ("u", "v", "omega"),
+    variables: Sequence[str] = ("u", "v", "omega", "temperature"),
     lat_step: float = 4.0,
     lon_step: float = 4.0,
     regrid: str = "if-needed",
@@ -136,19 +196,29 @@ def read_netcdf(
             if len(np.unique(selected_time_indices)) != selected_time_indices.size:
                 raise ConversionError("duplicate NetCDF time indices")
             times = times[selected_time_indices]
-        u_name = _field(dataset, "eastward_wind")
-        v_name = _field(dataset, "northward_wind")
-        if u_name is None or v_name is None:
-            raise ConversionError("NetCDF must contain identifiable eastward and northward wind")
         selected: dict[str, np.ndarray] = {}
-        for canonical, source_name in (("eastward_wind", u_name), ("northward_wind", v_name)):
-            data = dataset[source_name].isel({time_name: selected_time_indices})
-            missing_dims = {time_name, lev_name, lat_name, lon_name} - set(data.dims)
-            if missing_dims:
-                raise ConversionError(f"{source_name} lacks dimensions {sorted(missing_dims)}")
-            selected[canonical] = np.asarray(
-                data.transpose(time_name, lev_name, lat_name, lon_name).values,
-                dtype=np.float64,
+        for canonical in (
+            "eastward_wind",
+            "northward_wind",
+            "air_temperature",
+        ):
+            if canonical not in requested:
+                continue
+            source_name = _field(dataset, canonical)
+            if source_name is None:
+                raise ScientificMappingError(
+                    f"requested field {canonical} could not be identified in NetCDF"
+                )
+            if canonical == "air_temperature":
+                _require_kelvin(dataset, source_name)
+            selected[canonical] = _load_field(
+                dataset,
+                source_name,
+                selected_time_indices=selected_time_indices,
+                time_name=time_name,
+                level_name=lev_name,
+                latitude_name=lat_name,
+                longitude_name=lon_name,
             )
         if "omega" in requested:
             omega_name = _field(dataset, "omega")
@@ -159,12 +229,36 @@ def read_netcdf(
             geometric = None
             density = None
             if omega_name:
-                native = np.asarray(dataset[omega_name].isel({time_name: selected_time_indices}).transpose(time_name, lev_name, lat_name, lon_name).values)
+                native = _load_field(
+                    dataset,
+                    omega_name,
+                    selected_time_indices=selected_time_indices,
+                    time_name=time_name,
+                    level_name=lev_name,
+                    latitude_name=lat_name,
+                    longitude_name=lon_name,
+                )
                 native_units = str(dataset[omega_name].attrs.get("units", ""))
             if geometric_name:
-                geometric = np.asarray(dataset[geometric_name].isel({time_name: selected_time_indices}).transpose(time_name, lev_name, lat_name, lon_name).values)
+                geometric = _load_field(
+                    dataset,
+                    geometric_name,
+                    selected_time_indices=selected_time_indices,
+                    time_name=time_name,
+                    level_name=lev_name,
+                    latitude_name=lat_name,
+                    longitude_name=lon_name,
+                )
             if density_name:
-                density = np.asarray(dataset[density_name].isel({time_name: selected_time_indices}).transpose(time_name, lev_name, lat_name, lon_name).values)
+                density = _load_field(
+                    dataset,
+                    density_name,
+                    selected_time_indices=selected_time_indices,
+                    time_name=time_name,
+                    level_name=lev_name,
+                    latitude_name=lat_name,
+                    longitude_name=lon_name,
+                )
             omega, omega_method = resolve_omega(
                 mode=vertical_velocity_mode,
                 native_omega=native,
@@ -198,7 +292,11 @@ def read_netcdf(
                 longitude,
                 target_lat,
                 target_lon,
-                pole_kind="horizontal_vector" if name != "omega" else "scalar",
+                pole_kind=(
+                    "horizontal_vector"
+                    if name in {"eastward_wind", "northward_wind"}
+                    else "scalar"
+                ),
             )
         else:
             mapped[name] = values
@@ -225,7 +323,7 @@ def read_netcdf(
         else:
             converted = interpolate_log_pressure(values, source_level, target_level)
         final[name] = converted.transpose(2, 3, 0, 1)
-    units = {name: "Pa s-1" if name == "omega" else "m s-1" for name in final}
+    units = {name: CANONICAL_UNITS[name] for name in final}
     gravity = gravity_m_s2
     planet = PlanetParameters(
         name=str(global_attrs.get("planet", "unknown")),
@@ -237,7 +335,11 @@ def read_netcdf(
             input_file=str(path),
             field=name,
             detected_grid_stage="regular_latitude_longitude",
-            detected_vector_stage="CF geographic components",
+            detected_vector_stage=(
+                "CF geographic wind component"
+                if name in {"eastward_wind", "northward_wind"}
+                else "not_applicable_scalar"
+            ),
             detected_vertical_stage="pressure_coordinate",
             detected_units=units[name],
             required_next_step=(
@@ -249,7 +351,11 @@ def read_netcdf(
                 if not need_regrid
                 else "target-grid adjustment and GRIB encoding"
             ),
-            skipped_as_already_completed="native-grid interpolation, vector rotation, pressure derivation",
+            skipped_as_already_completed=(
+                "native-grid interpolation, vector rotation, pressure derivation"
+                if name in {"eastward_wind", "northward_wind"}
+                else "native-grid interpolation and pressure derivation"
+            ),
             evidence="CF coordinate/standard_name/dimension metadata",
         )
         for name in final

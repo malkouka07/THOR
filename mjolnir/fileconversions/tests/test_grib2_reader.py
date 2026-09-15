@@ -1,4 +1,6 @@
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -26,9 +28,40 @@ from test_grib_roundtrip import canonical
 def test_grib2_message_mapping(tmp_path):
     paths = write_grib2_dataset(canonical(), tmp_path)
     messages = [message for path in paths for message in iter_grib2(path)]
-    assert len(messages) == 4
-    assert {item.field_name for item in messages} == {"eastward_wind", "northward_wind"}
+    assert len(messages) == 6
+    assert {item.field_name for item in messages} == {
+        "eastward_wind",
+        "northward_wind",
+        "air_temperature",
+    }
     assert {item.pressure_level_pa for item in messages} == {100000, 50000}
+    temperature = [
+        item for item in messages if item.field_name == "air_temperature"
+    ]
+    assert len(temperature) == 2
+    assert all(
+        (
+            item.metadata["discipline"],
+            item.metadata["parameterCategory"],
+            item.metadata["parameterNumber"],
+        )
+        == (0, 0, 0)
+        for item in temperature
+    )
+    assert all(item.metadata["shortName"] == "t" for item in temperature)
+    assert all(item.metadata["units"] == "K" for item in temperature)
+    assert all(np.allclose(item.values[0], 245.0) for item in temperature)
+    assert all(np.allclose(item.values[-1], 255.0) for item in temperature)
+    temperature_path = next(path for path in paths if "air_temperature" in path.name)
+    sidecar = json.loads(
+        Path(str(temperature_path) + ".metadata.json").read_text()
+    )
+    assert sidecar["grib_parameters"]["air_temperature"] == {
+        "eccodes_param_id": 130,
+        "grib1_wire_id": "11.2",
+        "grib2_id": "0/0/0",
+        "units": "K",
+    }
 
 
 def test_grib2_collection_interpolates_stacks_and_retains_native_times(tmp_path):
@@ -46,11 +79,13 @@ def test_grib2_collection_interpolates_stacks_and_retains_native_times(tmp_path)
             "eastward_wind": u,
             "northward_wind": 2.0 * u,
             "omega": -3.0 * u,
+            "air_temperature": 250.0 + u,
         },
         units={
             "eastward_wind": "m s-1",
             "northward_wind": "m s-1",
             "omega": "Pa s-1",
+            "air_temperature": "K",
         },
         planet=PlanetParameters(name="Venus", gravity_m_s2=8.87),
         metadata={"simulation_name": "stack"},
@@ -67,6 +102,12 @@ def test_grib2_collection_interpolates_stacks_and_retains_native_times(tmp_path)
         np.log(converted.level_pa)[None, :, None, None],
         atol=2e-6,
     )
+    assert np.allclose(
+        converted.fields["air_temperature"],
+        250.0 + np.log(converted.level_pa)[None, :, None, None],
+        atol=2e-6,
+    )
+    assert converted.units["air_temperature"] == "K"
     assert converted.metadata["absolute_valid_times_utc"] == [
         "2000-01-01T00:00:00Z",
         "2000-01-01T06:00:00Z",
@@ -87,6 +128,13 @@ def test_grib2_collection_interpolates_stacks_and_retains_native_times(tmp_path)
     assert omega and all(item.metadata["indicatorOfParameter"] == 39 for item in omega)
     assert all(item.metadata["table2Version"] == 2 for item in omega)
     assert all("Pa" in str(item.metadata["units"]) for item in omega)
+    temperature = [
+        item for item in decoded if item.field_name == "air_temperature"
+    ]
+    assert temperature
+    assert all(item.metadata["indicatorOfParameter"] == 11 for item in temperature)
+    assert all(item.metadata["table2Version"] == 2 for item in temperature)
+    assert all(item.metadata["units"] == "K" for item in temperature)
 
 
 def test_grib2_height_above_ground_is_never_treated_as_pressure(tmp_path):

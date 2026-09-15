@@ -19,8 +19,13 @@ from .readers.hdf5_reader import read_processed_hdf5_collection
 from .readers.netcdf_reader import read_netcdf_collection
 from .validation.grib_validation import roundtrip_against_canonical, validate_grib_files
 from .validation.parity import compare_grib_collections
+from .validation.reconstruction import (
+    reconstruct_grib_on_source_grid,
+    write_reconstruction_netcdf,
+)
 from .validation.reporting import (
     write_csv,
+    write_difference_csv,
     write_markdown_report,
     write_pressure_mapping,
     write_processing_stages,
@@ -175,11 +180,30 @@ def _write_variable_mapping(report_dir: Path, dataset) -> None:
                 "canonical_variable": name,
                 "units": dataset.units[name],
                 "grib1_table_version": 2,
-                "grib1_wire_parameter": {"eastward_wind": 33, "northward_wind": 34, "omega": 39}[name],
-                "eccodes_param_id": {"eastward_wind": 131, "northward_wind": 132, "omega": 135}[name],
-                "grib2_parameter": {"eastward_wind": "0/2/2", "northward_wind": "0/2/3", "omega": "0/2/8"}[name],
+                "grib1_wire_parameter": {
+                    "eastward_wind": 33,
+                    "northward_wind": 34,
+                    "omega": 39,
+                    "air_temperature": 11,
+                }[name],
+                "eccodes_param_id": {
+                    "eastward_wind": 131,
+                    "northward_wind": 132,
+                    "omega": 135,
+                    "air_temperature": 130,
+                }[name],
+                "grib2_parameter": {
+                    "eastward_wind": "0/2/2",
+                    "northward_wind": "0/2/3",
+                    "omega": "0/2/8",
+                    "air_temperature": "0/0/0",
+                }[name],
                 "packing": "grid_simple; bitsPerValue set by --bits-per-value",
-                "omega_method": dataset.metadata.get("omega_method", "not applicable"),
+                "omega_method": (
+                    dataset.metadata.get("omega_method", "unknown")
+                    if name == "omega"
+                    else "not applicable"
+                ),
                 "status": "mapped",
             }
         )
@@ -234,7 +258,16 @@ def _post_validate(
             technical_epoch=technical_epoch,
             conversion_mode=f"canonical-to-GRIB{edition}",
         )
-    write_csv(report_dir / "roundtrip_statistics.csv", roundtrip_rows)
+    if dataset is None:
+        write_csv(report_dir / "roundtrip_statistics.csv", roundtrip_rows)
+    else:
+        write_difference_csv(
+            report_dir / "roundtrip_statistics.csv",
+            roundtrip_rows,
+            maximum_field="round_trip_maximum_absolute_error",
+            mean_field="round_trip_mean_absolute_error",
+            count_field="compared_value_count",
+        )
     status = (
         "passed"
         if all(row["status"] == "passed" for row in [*rows, *roundtrip_rows])
@@ -260,7 +293,7 @@ def convert_hdf5(args, *, edition: int) -> list[Path]:
         raise ConversionError("Only --input-kind mjolnir-processed is implemented")
     paths = _hdf5_candidates(args, report_dir)
     logger.info("Selected %d verified Mjolnir-processed HDF5 file(s)", len(paths))
-    dataset, pressure_mapping = read_processed_hdf5_collection(
+    read_result = read_processed_hdf5_collection(
         paths,
         variables=args.variables,
         lat_step=args.lat_step,
@@ -269,7 +302,13 @@ def convert_hdf5(args, *, edition: int) -> list[Path]:
         pressure_level_policy=args.pressure_level_policy,
         planet_file=args.planet_file,
         grid_file=args.grid_file,
+        include_source_reference=edition == 1,
     )
+    if edition == 1:
+        dataset, pressure_mapping, source_reference = read_result
+    else:
+        dataset, pressure_mapping = read_result
+        source_reference = None
     write_processing_stages(report_dir / "processing_stage_detection.csv", dataset.stages)
     write_pressure_mapping(report_dir / "pressure_level_mapping.csv", pressure_mapping)
     _write_variable_mapping(report_dir, dataset)
@@ -313,6 +352,68 @@ def convert_hdf5(args, *, edition: int) -> list[Path]:
         dataset=dataset,
         technical_epoch=args.technical_epoch,
     )
+    if edition == 1:
+        assert source_reference is not None
+        reconstruction = reconstruct_grib_on_source_grid(
+            outputs,
+            source_reference,
+            technical_epoch=args.technical_epoch,
+        )
+        write_difference_csv(
+            report_dir / "hdf5_grib1_reconstruction_statistics.csv",
+            reconstruction.rows,
+            group_fields=("comparison_stage", "region"),
+            count_field="compared_value_count",
+        )
+        reconstruction_lines = [
+            "- Difference convention: decoded GRIB1 reconstructed minus original HDF5.",
+            "- Vertical extrapolation: **forbidden**; out-of-range values are reported as not comparable.",
+            "- Interpretation: descriptive diagnostics only; no scientific pass/fail threshold is applied.",
+        ]
+        for field_name in source_reference.fields:
+            field_rows = [
+                row
+                for row in reconstruction.rows
+                if row["variable"] == field_name and row["region"] == "all"
+            ]
+            count = sum(int(row["compared_value_count"]) for row in field_rows)
+            possible = sum(int(row["total_value_count"]) for row in field_rows)
+            measured = [row for row in field_rows if row["compared_value_count"]]
+            if not measured or count == 0:
+                reconstruction_lines.append(
+                    f"- {field_name}: compared 0/{possible} source-grid values; "
+                    "no source pressure was reconstructable without extrapolation."
+                )
+                continue
+            maximum = max(
+                float(row["maximum_absolute_difference"]) for row in measured
+            )
+            mean = sum(
+                float(row["mean_absolute_difference"])
+                * int(row["compared_value_count"])
+                for row in measured
+            ) / count
+            reconstruction_lines.append(
+                f"- {field_name}: compared {count}/{possible} source-grid values; "
+                f"maximum absolute difference {maximum:.9g} {source_reference.units[field_name]}; "
+                f"mean absolute difference {mean:.9g} {source_reference.units[field_name]}."
+            )
+        write_markdown_report(
+            report_dir / "hdf5_grib1_reconstruction_report.md",
+            "HDF5–decoded GRIB1 reconstruction report",
+            reconstruction_lines,
+        )
+        if getattr(args, "reconstruction_netcdf", False):
+            write_reconstruction_netcdf(
+                report_dir / "hdf5_grib1_reconstruction_differences.nc",
+                source_reference,
+                reconstruction,
+                technical_epoch=args.technical_epoch,
+                overwrite=args.overwrite,
+            )
+        logger.info(
+            "Compared decoded GRIB1 with original HDF5 values on the source grid"
+        )
     logger.info("Created %d GRIB%d output file(s)", len(outputs), edition)
     return outputs
 
@@ -415,8 +516,24 @@ def convert_grib2(args) -> list[Path]:
     vertical_interpolation_performed = any(
         item.interpolation_performed for item in pressure_mapping
     )
-    parameter_ids = {"eastward_wind": 131, "northward_wind": 132, "omega": 135}
-    wire_parameters = {"eastward_wind": 33, "northward_wind": 34, "omega": 39}
+    parameter_ids = {
+        "eastward_wind": 131,
+        "northward_wind": 132,
+        "omega": 135,
+        "air_temperature": 130,
+    }
+    wire_parameters = {
+        "eastward_wind": 33,
+        "northward_wind": 34,
+        "omega": 39,
+        "air_temperature": 11,
+    }
+    target_units = {
+        "eastward_wind": "m s-1",
+        "northward_wind": "m s-1",
+        "omega": "Pa s-1",
+        "air_temperature": "K",
+    }
     mapping_rows: list[dict[str, object]] = []
     for message in messages:
         meta = message.metadata
@@ -439,9 +556,7 @@ def convert_grib2(args) -> list[Path]:
                 "target_table_version": 2,
                 "target_wire_parameter": wire_parameters.get(message.field_name, ""),
                 "target_eccodes_param_id": parameter_ids.get(message.field_name, ""),
-                "target_units": (
-                    "Pa s-1" if message.field_name == "omega" else "m s-1"
-                ),
+                "target_units": target_units.get(message.field_name, ""),
                 "target_type_of_level": (
                     "isobaricInPa"
                     if args.level_encoding == "ecmwf-pa"
@@ -542,5 +657,10 @@ def compare_command(args) -> list[dict[str, object]]:
     grib1 = sorted(Path(args.grib1_dir).expanduser().resolve().glob(args.grib1_glob))
     grib2 = sorted(Path(args.grib2_dir).expanduser().resolve().glob(args.grib2_glob))
     rows = compare_grib_collections(grib1, grib2, packing_tolerance=args.packing_tolerance)
-    write_csv(Path(args.report).expanduser().resolve(), rows)
+    write_difference_csv(
+        Path(args.report).expanduser().resolve(),
+        rows,
+        maximum_field="max_absolute_difference",
+        count_field="compared_value_count",
+    )
     return rows

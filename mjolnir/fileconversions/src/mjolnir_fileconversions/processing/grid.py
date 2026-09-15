@@ -86,6 +86,65 @@ def grids_equal(
     )
 
 
+def periodic_bilinear_interpolate(
+    field: np.ndarray,
+    source_latitude: np.ndarray,
+    source_longitude: np.ndarray,
+    target_latitude: np.ndarray,
+    target_longitude: np.ndarray,
+) -> np.ndarray:
+    """Bilinearly interpolate a regular field with periodic longitude.
+
+    Unlike :func:`horizontal_remap`, this primitive does not invent values at
+    poles.  Every target latitude must lie inside the source latitude range.
+    Trailing field dimensions are retained.
+    """
+    values = np.asarray(field, dtype=np.float64)
+    source_latitude = np.asarray(source_latitude, dtype=np.float64)
+    source_longitude = np.asarray(source_longitude, dtype=np.float64)
+    target_latitude = np.asarray(target_latitude, dtype=np.float64)
+    target_longitude = np.mod(np.asarray(target_longitude, dtype=np.float64), 360.0)
+    if values.shape[:2] != (source_latitude.size, source_longitude.size):
+        raise ConversionError(
+            "periodic interpolation field does not match source coordinates"
+        )
+    for name, coordinate in (
+        ("source latitude", source_latitude),
+        ("source longitude", source_longitude),
+        ("target latitude", target_latitude),
+        ("target longitude", target_longitude),
+    ):
+        if coordinate.ndim != 1 or coordinate.size == 0 or np.any(~np.isfinite(coordinate)):
+            raise ConversionError(f"{name} must be a non-empty finite 1-D coordinate")
+    if np.any(np.diff(source_latitude) <= 0) or np.any(np.diff(source_longitude) <= 0):
+        raise ConversionError("source coordinates must be strictly increasing")
+    if (
+        target_latitude.min() < source_latitude[0] - 1e-10
+        or target_latitude.max() > source_latitude[-1] + 1e-10
+    ):
+        raise ConversionError("target latitude would require extrapolation")
+    lon_ext = np.concatenate(
+        (
+            [source_longitude[-1] - 360.0],
+            source_longitude,
+            [source_longitude[0] + 360.0],
+        )
+    )
+    field_ext = np.concatenate(
+        (values[:, -1:, ...], values, values[:, :1, ...]), axis=1
+    )
+    interpolator = RegularGridInterpolator(
+        (source_latitude, lon_ext), field_ext, method="linear", bounds_error=True
+    )
+    lat_mesh, lon_mesh = np.meshgrid(
+        target_latitude, target_longitude, indexing="ij"
+    )
+    points = np.column_stack((lat_mesh.ravel(), lon_mesh.ravel()))
+    return interpolator(points).reshape(
+        target_latitude.size, target_longitude.size, *values.shape[2:]
+    )
+
+
 def horizontal_remap(
     field: np.ndarray,
     source_latitude: np.ndarray,
@@ -109,18 +168,15 @@ def horizontal_remap(
         raise ConversionError(f"unknown pole kind: {pole_kind}")
     if target_latitude[0] != -90.0 or target_latitude[-1] != 90.0:
         raise ConversionError("target latitude must contain the exact poles")
-    lon_ext = np.concatenate(
-        ([source_longitude[-1] - 360.0], source_longitude, [source_longitude[0] + 360.0])
-    )
-    field_ext = np.concatenate((field[:, -1:, ...], field, field[:, :1, ...]), axis=1)
-    interpolator = RegularGridInterpolator(
-        (source_latitude, lon_ext), field_ext, method="linear", bounds_error=True
-    )
     interior = target_latitude[1:-1]
-    lat_mesh, lon_mesh = np.meshgrid(interior, target_longitude, indexing="ij")
-    points = np.column_stack((lat_mesh.ravel(), lon_mesh.ravel()))
+    mapped = periodic_bilinear_interpolate(
+        field,
+        source_latitude,
+        source_longitude,
+        interior,
+        target_longitude,
+    )
     tail = field.shape[2:]
-    mapped = interpolator(points).reshape(interior.size, target_longitude.size, *tail)
     output = np.empty((target_latitude.size, target_longitude.size, *tail), dtype=np.float64)
     output[1:-1] = mapped
     if pole_kind == "horizontal_vector":

@@ -1,5 +1,6 @@
 simulation_name: venus
 input_kind: mjolnir-processed
+variables: [u, v, omega, temperature]
 # Relative paths are resolved from this YAML file; use an actual local path.
 planet_file: /path/to/venus_5_long_benchmark/esp_output_planet_venus.h5
 target_grid:

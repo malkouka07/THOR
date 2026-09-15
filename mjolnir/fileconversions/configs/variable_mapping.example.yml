@@ -14,3 +14,8 @@ variables:
     units: "Pa s-1"
     grib1_parameter: 39
     grib2_parameter: [0, 2, 8]
+  air_temperature:
+    aliases: [Temperature, temperature, temp, T, t, air_temperature]
+    units: "K"
+    grib1_parameter: 11
+    grib2_parameter: [0, 0, 0]

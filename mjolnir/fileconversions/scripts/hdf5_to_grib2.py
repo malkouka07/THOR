@@ -14,7 +14,12 @@ from mjolnir_fileconversions.errors import ConversionError
 
 def main() -> int:
     try:
-        args = parse_args_with_config(parser(default_pressure_level_policy="source"))
+        args = parse_args_with_config(
+            parser(
+                default_pressure_level_policy="source",
+                include_reconstruction_options=False,
+            )
+        )
         convert_hdf5(args, edition=2)
     except (ConversionError, FileNotFoundError, FileExistsError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

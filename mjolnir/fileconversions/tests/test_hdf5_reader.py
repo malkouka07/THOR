@@ -15,6 +15,12 @@ def _processed_tree(root: Path) -> Path:
     lon = np.array([0.0, 90.0, 180.0, 270.0])
     level = np.array([100000.0, 50000.0, 10000.0])
     shape = (lat.size, lon.size, level.size)
+    temperature = (
+        250.0
+        + 0.1 * lat[:, None, None]
+        + np.arange(lon.size)[None, :, None]
+        + 2.0 * np.arange(level.size)[None, None, :]
+    )
     with h5py.File(path, "w") as h:
         h["Latitude"] = lat
         h["Longitude"] = lon
@@ -23,6 +29,7 @@ def _processed_tree(root: Path) -> Path:
         h["V"] = np.ones(shape) * 2
         h["W"] = np.ones(shape) * 0.1
         h["Rho"] = np.ones(shape) * 1.5
+        h["Temperature"] = temperature
     with h5py.File(root / "esp_output_test_1.h5", "w") as h:
         h["simulation_time"] = np.array([86400.0])
     with h5py.File(root / "esp_output_planet_test.h5", "w") as h:
@@ -38,16 +45,38 @@ def _processed_tree(root: Path) -> Path:
 def test_processed_hdf5_classification_and_reader(tmp_path):
     path = _processed_tree(tmp_path)
     assert classify_hdf5(path).classification == "mjolnir_processed"
-    dataset, mapping = read_processed_hdf5(
+    dataset, mapping, source_reference = read_processed_hdf5(
         path,
-        variables=["u", "v", "omega"],
+        variables=["u", "v", "omega", "temperature"],
         lat_step=45,
         lon_step=90,
         vertical_velocity_mode="hydrostatic",
+        include_source_reference=True,
     )
     assert dataset.shape == (1, 3, 5, 4)
     assert dataset.planet.gravity_m_s2 == 8.87
     assert np.all(dataset.fields["omega"][:, :, 1:-1] == pytest.approx(-1.5 * 8.87 * 0.1))
+    assert dataset.units["air_temperature"] == "K"
+    temperature_stage = next(
+        stage for stage in dataset.stages if stage.field == "air_temperature"
+    )
+    assert temperature_stage.detected_vector_stage == "not_applicable"
+    with h5py.File(path, "r") as handle:
+        raw_temperature = np.asarray(handle["Temperature"][...])
+    assert np.array_equal(
+        source_reference.fields["air_temperature"][0],
+        raw_temperature.transpose(2, 0, 1),
+    )
+    assert source_reference.units["air_temperature"] == "K"
+    assert source_reference.source_dataset_names["air_temperature"] == "Temperature"
+    assert np.allclose(
+        dataset.fields["air_temperature"][0, :, 0, :],
+        np.mean(raw_temperature[0], axis=0)[:, None],
+    )
+    assert np.allclose(
+        dataset.fields["air_temperature"][0, :, -1, :],
+        np.mean(raw_temperature[-1], axis=0)[:, None],
+    )
     assert mapping[0].target_level_pa == 100000
     assert all("native-grid interpolation" in stage.skipped_as_already_completed for stage in dataset.stages)
 
@@ -93,12 +122,13 @@ def test_hpa_policy_interpolates_original_pressure_once_in_log_p(tmp_path):
         handle["Pressure"] = level
         handle["U"] = u
         handle["V"] = 2.0 * u
+        handle["Temperature"] = 220.0 + u
     with h5py.File(tmp_path / "esp_output_log_1.h5", "w") as handle:
         handle["simulation_time"] = np.array([12345.0])
 
     result, mapping = read_processed_hdf5(
         path,
-        variables=["u", "v"],
+        variables=["u", "v", "temperature"],
         lat_step=45,
         lon_step=90,
         pressure_level_policy="hpa-aligned",
@@ -110,6 +140,12 @@ def test_hpa_policy_interpolates_original_pressure_once_in_log_p(tmp_path):
         np.log(result.level_pa)[None, :, None, None],
         atol=1e-12,
     )
+    assert np.allclose(
+        result.fields["air_temperature"][:, :, 1:-1, :],
+        220.0 + np.log(result.level_pa)[None, :, None, None],
+        atol=1e-12,
+    )
+    assert result.units["air_temperature"] == "K"
     assert result.time_seconds.tolist() == [12345.0]
     assert result.metadata["pressure_level_policy"] == "hpa-aligned"
     assert result.metadata["vertical_interpolation_count"] == 1

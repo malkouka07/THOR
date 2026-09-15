@@ -38,6 +38,14 @@ def compare_grib_collections(
             raise ConversionError("GRIB collections have no common keys and different message counts")
         pairs = list(zip(left, right))
     else:
+        if set(grib1) != set(grib2):
+            missing_from_grib1 = sorted(set(grib2) - set(grib1))
+            missing_from_grib2 = sorted(set(grib1) - set(grib2))
+            raise ConversionError(
+                "GRIB parity key sets differ; "
+                f"missing from GRIB1={missing_from_grib1[:5]}, "
+                f"missing from GRIB2={missing_from_grib2[:5]}"
+            )
         pairs = [(grib1[key], grib2[key]) for key in common]
     rows: list[dict[str, object]] = []
     for left, right in pairs:
@@ -45,9 +53,11 @@ def compare_grib_collections(
             raise ConversionError("GRIB parity message ordering differs")
         if left.values.shape != right.values.shape:
             raise ConversionError(f"GRIB parity grid mismatch: {left.values.shape} vs {right.values.shape}")
-        difference = left.values - right.values
-        finite = np.isfinite(difference)
-        diff = difference[finite]
+        left_missing = ~np.isfinite(left.values)
+        right_missing = ~np.isfinite(right.values)
+        missing_mismatch = int(np.count_nonzero(left_missing != right_missing))
+        finite = ~left_missing & ~right_missing
+        diff = (left.values - right.values)[finite]
         scale = np.sqrt(np.mean(np.square(right.values[np.isfinite(right.values)])))
         rms = float(np.sqrt(np.mean(np.square(diff)))) if diff.size else float("nan")
         max_abs = float(np.max(np.abs(diff))) if diff.size else float("nan")
@@ -55,6 +65,7 @@ def compare_grib_collections(
             {
                 "input_file": f"{left.path};{right.path}",
                 "variable": left.field_name,
+                "units": left.units,
                 "time": left.valid_time,
                 "pressure_level_pa": right.pressure_level_pa,
                 "grid_shape": "x".join(map(str, left.values.shape)),
@@ -64,10 +75,16 @@ def compare_grib_collections(
                 "grib2_max": float(np.nanmax(right.values)),
                 "max_absolute_difference": max_abs,
                 "mean_absolute_difference": float(np.mean(np.abs(diff))),
+                "compared_value_count": int(diff.size),
+                "missing_mask_mismatch_count": missing_mismatch,
                 "rms_difference": rms,
                 "relative_rms_difference": rms / max(scale, 1e-30),
                 "packing_tolerance": packing_tolerance,
-                "parity_status": "passed" if max_abs <= packing_tolerance else "failed",
+                "parity_status": (
+                    "passed"
+                    if missing_mismatch == 0 and max_abs <= packing_tolerance
+                    else "failed"
+                ),
                 "notes": f"decoded GRIB1 level={left.pressure_level_pa} Pa",
             }
         )

@@ -20,7 +20,9 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--input-glob")
     result.add_argument("--output-dir", type=Path, required=True)
     result.add_argument("--config", type=Path)
-    result.add_argument("--variables", nargs="+", default=["u", "v", "omega"])
+    result.add_argument(
+        "--variables", nargs="+", default=["u", "v", "omega", "temperature"]
+    )
     result.add_argument("--time-index", type=int)
     result.add_argument("--time-indices", nargs="*", type=int)
     result.add_argument("--test-mode", action="store_true")

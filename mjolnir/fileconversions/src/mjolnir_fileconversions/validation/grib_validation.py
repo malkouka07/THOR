@@ -18,6 +18,21 @@ from ..writers.grib_common import eccodes_module, valid_datetime
 from .field_statistics import finite_statistics
 
 
+CANONICAL_UNITS = {
+    "eastward_wind": "m s-1",
+    "northward_wind": "m s-1",
+    "omega": "Pa s-1",
+    "air_temperature": "K",
+}
+
+DECODED_UNIT_ALIASES = {
+    "eastward_wind": {"m s-1", "m s**-1", "m/s"},
+    "northward_wind": {"m s-1", "m s**-1", "m/s"},
+    "omega": {"Pa s-1", "Pa s**-1", "Pa/s"},
+    "air_temperature": {"K", "kelvin", "Kelvin"},
+}
+
+
 @dataclass
 class DecodedGribMessage:
     path: Path
@@ -44,7 +59,12 @@ def _field(codes, handle: int, edition: int) -> str:
     if edition == 1:
         parameter = int(codes.codes_get(handle, "indicatorOfParameter"))
         table = int(codes.codes_get(handle, "table2Version"))
-        mapping = {33: "eastward_wind", 34: "northward_wind", 39: "omega"}
+        mapping = {
+            11: "air_temperature",
+            33: "eastward_wind",
+            34: "northward_wind",
+            39: "omega",
+        }
         if table != 2 or parameter not in mapping:
             raise ConversionError(f"unsupported GRIB1 table/parameter {table}/{parameter}")
         return mapping[parameter]
@@ -53,7 +73,12 @@ def _field(codes, handle: int, edition: int) -> str:
         int(codes.codes_get(handle, "parameterCategory")),
         int(codes.codes_get(handle, "parameterNumber")),
     )
-    mapping = {(0, 2, 2): "eastward_wind", (0, 2, 3): "northward_wind", (0, 2, 8): "omega"}
+    mapping = {
+        (0, 0, 0): "air_temperature",
+        (0, 2, 2): "eastward_wind",
+        (0, 2, 3): "northward_wind",
+        (0, 2, 8): "omega",
+    }
     if key not in mapping:
         raise ConversionError(f"unsupported GRIB2 parameter {key}")
     return mapping[key]
@@ -114,7 +139,19 @@ def decode_grib_messages(paths: Sequence[Path]) -> list[DecodedGribMessage]:
                         )
                     }
                     result.append(
-                        DecodedGribMessage(path, index, edition, field_name, "Pa s-1" if field_name == "omega" else "m s-1", level_pa, valid, latitude, longitude, values, metadata)
+                        DecodedGribMessage(
+                            path,
+                            index,
+                            edition,
+                            field_name,
+                            CANONICAL_UNITS[field_name],
+                            level_pa,
+                            valid,
+                            latitude,
+                            longitude,
+                            values,
+                            metadata,
+                        )
                     )
                 finally:
                     codes.codes_release(handle)
@@ -125,10 +162,28 @@ def decode_grib_messages(paths: Sequence[Path]) -> list[DecodedGribMessage]:
 
 def validate_grib_files(paths: Sequence[Path], *, expected_edition: int | None = None) -> tuple[list[dict[str, object]], list[str]]:
     messages = decode_grib_messages(paths)
+    stack_levels: dict[tuple[Path, str, str], list[int]] = {}
+    for item in messages:
+        stack_levels.setdefault(
+            (item.path, item.valid_time, item.field_name), []
+        ).append(item.pressure_level_pa)
+    stack_order = {
+        key: (
+            "ascending"
+            if all(right > left for left, right in zip(levels, levels[1:]))
+            else "not_strictly_ascending"
+        )
+        for key, levels in stack_levels.items()
+    }
     rows: list[dict[str, object]] = []
     warnings: list[str] = []
     for item in messages:
         errors: list[str] = []
+        order = stack_order[(item.path, item.valid_time, item.field_name)]
+        if order != "ascending":
+            errors.append(
+                "pressure messages are not strictly ascending within the field/time stack"
+            )
         if expected_edition is not None and item.edition != expected_edition:
             errors.append(f"edition {item.edition} != {expected_edition}")
         if item.metadata.get("gridType") != "regular_ll":
@@ -144,8 +199,12 @@ def validate_grib_files(paths: Sequence[Path], *, expected_edition: int | None =
             errors.append("longitude is not periodic [0,360)")
         if np.any(np.isinf(item.values)):
             errors.append("field contains Inf")
-        if item.field_name == "omega" and item.units != "Pa s-1":
-            errors.append("omega unit is not Pa s-1")
+        expected_units = CANONICAL_UNITS[item.field_name]
+        decoded_units = str(item.metadata.get("units", ""))
+        if decoded_units not in DECODED_UNIT_ALIASES[item.field_name]:
+            errors.append(
+                f"{item.field_name} decoded unit {decoded_units!r} is not {expected_units}"
+            )
         stat = finite_statistics(item.values)
         rows.append(
             {
@@ -155,6 +214,7 @@ def validate_grib_files(paths: Sequence[Path], *, expected_edition: int | None =
                 "variable": item.field_name,
                 "time": item.valid_time,
                 "pressure_level_pa": item.pressure_level_pa,
+                "message_pressure_order": order,
                 "grid": f"{item.latitude.size}x{item.longitude.size}",
                 **stat,
                 "status": "passed" if not errors else "failed",
@@ -192,7 +252,19 @@ def roundtrip_against_canonical(
     for item in decoded_messages:
         by_field_time.setdefault((item.field_name, item.valid_time), []).append(item)
     for values in by_field_time.values():
-        values.sort(key=lambda item: (str(item.path), item.message_index))
+        values.sort(
+            key=lambda item: (
+                item.pressure_level_pa,
+                str(item.path),
+                item.message_index,
+            )
+        )
+    level_rank = {
+        int(level_index): rank
+        for rank, level_index in enumerate(
+            np.argsort(dataset.level_pa, kind="stable")
+        )
+    }
     rows: list[dict[str, object]] = []
     for time_index in range(dataset.time_seconds.size):
         stamp = valid_datetime(dataset, time_index, technical_epoch).strftime("%Y%m%dT%H%M")
@@ -204,7 +276,7 @@ def roundtrip_against_canonical(
                     candidates = by_field_time.get((field_name, stamp), [])
                     if len(candidates) != dataset.level_pa.size:
                         raise ConversionError(f"round-trip output is missing message {key}")
-                    item = candidates[level_index]
+                    item = candidates[level_rank[level_index]]
                 expected = field[time_index, level_index]
                 if expected.shape != item.values.shape:
                     raise ConversionError(
@@ -217,9 +289,11 @@ def roundtrip_against_canonical(
                 difference = item.values[finite] - expected[finite]
                 if difference.size:
                     max_abs = float(np.max(np.abs(difference)))
+                    mean_abs = float(np.mean(np.abs(difference)))
                     rms = float(np.sqrt(np.mean(np.square(difference))))
                 else:
                     max_abs = float("nan")
+                    mean_abs = float("nan")
                     rms = float("nan")
                 stat = finite_statistics(item.values)
                 rows.append(
@@ -228,15 +302,22 @@ def roundtrip_against_canonical(
                         "output_file": str(item.path),
                         "edition": item.edition,
                         "variable": field_name,
+                        "units": dataset.units[field_name],
                         "time": stamp,
                         "pressure_level_pa": int(round(level)),
                         "encoded_pressure_level_pa": item.pressure_level_pa,
                         "grid": f"{item.latitude.size}x{item.longitude.size}",
                         "conversion_mode": conversion_mode,
-                        "omega_mode": dataset.metadata.get("omega_method", "not applicable"),
+                        "omega_mode": (
+                            dataset.metadata.get("omega_method", "unknown")
+                            if field_name == "omega"
+                            else "not applicable"
+                        ),
                         **stat,
                         "round_trip_maximum_absolute_error": max_abs,
+                        "round_trip_mean_absolute_error": mean_abs,
                         "round_trip_rms_error": rms,
+                        "compared_value_count": int(difference.size),
                         "missing_mask_mismatch_count": missing_mismatch,
                         "packing_tolerance": packing_tolerance,
                         "status": (

@@ -54,7 +54,12 @@ def _field_name(metadata: dict[str, object]) -> str:
         int(metadata.get("parameterCategory", -1)),
         int(metadata.get("parameterNumber", -1)),
     )
-    by_code = {(0, 2, 2): "eastward_wind", (0, 2, 3): "northward_wind", (0, 2, 8): "omega"}
+    by_code = {
+        (0, 0, 0): "air_temperature",
+        (0, 2, 2): "eastward_wind",
+        (0, 2, 3): "northward_wind",
+        (0, 2, 8): "omega",
+    }
     short = str(metadata.get("shortName", ""))
     if key in by_code:
         return by_code[key]
@@ -64,6 +69,12 @@ def _field_name(metadata: dict[str, object]) -> str:
         return "northward_wind"
     if short in {"w", "omega"} and "Pa" in str(metadata.get("units", "")):
         return "omega"
+    if short in {"t", "temp"} and str(metadata.get("units", "")) in {
+        "K",
+        "kelvin",
+        "Kelvin",
+    }:
+        return "air_temperature"
     raise UnsupportedMessageError(f"No GRIB1 mapping for GRIB2 parameter {key}, shortName={short!r}")
 
 
@@ -272,7 +283,12 @@ def read_grib2_collection(
                 "GRIB2 collection grids differ; pressure stacks cannot be combined"
             )
 
-    field_order = ("eastward_wind", "northward_wind", "omega")
+    field_order = (
+        "eastward_wind",
+        "northward_wind",
+        "omega",
+        "air_temperature",
+    )
     fields = [name for name in field_order if any(item.field_name == name for item in selected)]
     groups: dict[tuple[datetime, str], dict[int, Grib2Message]] = {}
     for message in selected:
@@ -343,9 +359,13 @@ def read_grib2_collection(
         [(valid - first_valid).total_seconds() for valid in selected_times],
         dtype=np.float64,
     )
-    units = {
-        name: "Pa s-1" if name == "omega" else "m s-1" for name in fields
+    canonical_units = {
+        "eastward_wind": "m s-1",
+        "northward_wind": "m s-1",
+        "omega": "Pa s-1",
+        "air_temperature": "K",
     }
+    units = {name: canonical_units[name] for name in fields}
     stage_pairs = sorted(
         {(message.source_file, message.field_name) for message in selected},
         key=lambda item: (str(item[0]), item[1]),
@@ -355,7 +375,11 @@ def read_grib2_collection(
             input_file=str(path),
             field=field,
             detected_grid_stage="GRIB2 regular_ll",
-            detected_vector_stage="GRIB2 geographic component",
+            detected_vector_stage=(
+                "GRIB2 geographic component"
+                if field in {"eastward_wind", "northward_wind"}
+                else "not_applicable"
+            ),
             detected_vertical_stage="GRIB2 pressure levels",
             detected_units=units[field],
             required_next_step=(

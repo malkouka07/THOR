@@ -71,6 +71,9 @@ def classify_hdf5(path: Path) -> HDF5Classification:
                 for name in ("eastward_wind", "northward_wind", "omega")
                 if name in keys
             ]
+            temperature_names = [
+                name for name in ("Temperature", "air_temperature") if name in keys
+            ]
             has_pressure = bool(
                 keys.intersection({"Pressure", "Pressure_mean", "pressure", "level", "plev"})
                 or {"Rho", "Rd", "Temperature"}.issubset(keys)
@@ -115,7 +118,9 @@ def classify_hdf5(path: Path) -> HDF5Classification:
                 has_longitude=has_lon,
                 has_pressure_levels=has_pressure,
                 has_time=has_time,
-                main_variables=";".join(wind_names + canonical_winds),
+                main_variables=";".join(
+                    wind_names + canonical_winds + temperature_names
+                ),
                 reason=reason,
             )
     except Exception as exc:

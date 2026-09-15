@@ -12,7 +12,12 @@ import numpy as np
 
 from ..discovery import require_processed
 from ..errors import ConversionError, ScientificMappingError
-from ..models import CanonicalDataset, PlanetParameters, ProcessingStage
+from ..models import (
+    CanonicalDataset,
+    PlanetParameters,
+    ProcessingStage,
+    SourceReferenceDataset,
+)
 from ..processing.grid import horizontal_remap, normalize_source_grid, target_regular_grid
 from ..processing.pressure import (
     PressureMapping,
@@ -107,6 +112,12 @@ def _requested(names: Sequence[str]) -> list[str]:
         "northward_wind": "northward_wind",
         "omega": "omega",
         "lagrangian_tendency_of_air_pressure": "omega",
+        "t": "air_temperature",
+        "T": "air_temperature",
+        "temp": "air_temperature",
+        "temperature": "air_temperature",
+        "Temperature": "air_temperature",
+        "air_temperature": "air_temperature",
     }
     try:
         result = [aliases[name] for name in names]
@@ -126,14 +137,18 @@ def _interpolate_if_needed(
 def read_processed_hdf5(
     path: Path,
     *,
-    variables: Sequence[str] = ("u", "v", "omega"),
+    variables: Sequence[str] = ("u", "v", "omega", "temperature"),
     lat_step: float = 4.0,
     lon_step: float = 4.0,
     vertical_velocity_mode: str = "strict",
     pressure_level_policy: str = "source",
     planet_file: Path | None = None,
     grid_file: Path | None = None,
-) -> tuple[CanonicalDataset, list[PressureMapping]]:
+    include_source_reference: bool = False,
+) -> (
+    tuple[CanonicalDataset, list[PressureMapping]]
+    | tuple[CanonicalDataset, list[PressureMapping], SourceReferenceDataset]
+):
     """Read one processed HDF5 file, never a native icosahedral product."""
     path = path.expanduser().resolve()
     require_processed([path])
@@ -175,12 +190,32 @@ def read_processed_hdf5(
                 raise ConversionError(
                     "explicit grid coordinates disagree with the processed HDF5; refusing double regridding"
                 )
-        u_name = _choose(handle, ("U", "eastward_wind", "U_mean"), "eastward wind")
-        v_name = _choose(handle, ("V", "northward_wind", "V_mean"), "northward wind")
-        raw_fields: dict[str, np.ndarray] = {
-            "eastward_wind": np.asarray(handle[u_name][...], dtype=np.float64),
-            "northward_wind": np.asarray(handle[v_name][...], dtype=np.float64),
-        }
+        raw_fields: dict[str, np.ndarray] = {}
+        source_dataset_names: dict[str, str] = {}
+        if "eastward_wind" in requested:
+            u_name = _choose(
+                handle, ("U", "eastward_wind", "U_mean"), "eastward wind"
+            )
+            raw_fields["eastward_wind"] = np.asarray(
+                handle[u_name][...], dtype=np.float64
+            )
+            source_dataset_names["eastward_wind"] = u_name
+        if "northward_wind" in requested:
+            v_name = _choose(
+                handle, ("V", "northward_wind", "V_mean"), "northward wind"
+            )
+            raw_fields["northward_wind"] = np.asarray(
+                handle[v_name][...], dtype=np.float64
+            )
+            source_dataset_names["northward_wind"] = v_name
+        if "air_temperature" in requested:
+            temperature_name = _choose(
+                handle, ("Temperature", "air_temperature"), "air temperature"
+            )
+            raw_fields["air_temperature"] = np.asarray(
+                handle[temperature_name][...], dtype=np.float64
+            )
+            source_dataset_names["air_temperature"] = temperature_name
         density = np.asarray(handle["Rho"][...], dtype=np.float64) if "Rho" in handle else None
         w_name = next((name for name in ("omega", "lagrangian_tendency_of_air_pressure", "W", "W_mean") if name in handle), None)
         native_omega = None
@@ -202,6 +237,9 @@ def read_processed_hdf5(
             )
             if omega is not None:
                 raw_fields["omega"] = omega
+                source_dataset_names["omega"] = (
+                    w_name if native_omega is not None else f"-Rho*Gravit*{w_name}"
+                )
         else:
             omega_method = "not requested"
 
@@ -302,6 +340,7 @@ def read_processed_hdf5(
         "eastward_wind": "m s-1",
         "northward_wind": "m s-1",
         "omega": "Pa s-1",
+        "air_temperature": "K",
     }
     for name in requested:
         if name not in remapped:
@@ -316,7 +355,11 @@ def read_processed_hdf5(
             input_file=str(path),
             field=name,
             detected_grid_stage="regular_latitude_longitude_from_mjolnir",
-            detected_vector_stage="geographic_u_v_already_rotated" if name != "omega" else "not_applicable",
+            detected_vector_stage=(
+                "geographic_u_v_already_rotated"
+                if name in {"eastward_wind", "northward_wind"}
+                else "not_applicable"
+            ),
             detected_vertical_stage=vertical_stage,
             detected_units=units[name],
             required_next_step=(
@@ -324,10 +367,16 @@ def read_processed_hdf5(
                 if pressure_level_policy == "hpa-aligned"
                 else "target-grid adjustment, integer-Pa normalization, GRIB encoding"
             ),
-            skipped_as_already_completed="native-grid interpolation and vector rotation",
+            skipped_as_already_completed=(
+                "native-grid interpolation and vector rotation"
+                if name in {"eastward_wind", "northward_wind"}
+                else "native-grid interpolation"
+            ),
             evidence=(
-                "Latitude/Longitude plus U/V structure; origin/mjolnir_advance:mjolnir/hamarr.py "
-                "regrid() computes geographic U/V before writing"
+                "Latitude/Longitude plus U/V structure; mjolnir/hamarr.py regrid() "
+                "computes geographic U/V before writing"
+                if name in {"eastward_wind", "northward_wind"}
+                else "processed HDF5 scalar field on independent Latitude/Longitude coordinates"
             ),
         )
         for name in final
@@ -365,18 +414,54 @@ def read_processed_hdf5(
         },
         stages=stages,
     )
-    return dataset, mapping
+    if not include_source_reference:
+        return dataset, mapping
+    source_pressure = (
+        np.broadcast_to(
+            pressure[:, None, None],
+            (pressure.size, lat.size, lon.size),
+        )[None, ...].copy()
+        if pressure_is_1d
+        else pressure.transpose(2, 0, 1)[None, ...]
+    )
+    source_reference = SourceReferenceDataset(
+        time_seconds=np.array([elapsed]),
+        latitude=lat,
+        longitude=lon,
+        pressure_pa=source_pressure,
+        fields={
+            name: raw_fields[name].transpose(2, 0, 1)[None, ...]
+            for name in final
+        },
+        units={name: units[name] for name in final},
+        source_files=[path],
+        source_dataset_names={
+            name: source_dataset_names.get(name, "derived") for name in final
+        },
+    )
+    return dataset, mapping, source_reference
 
 
 def read_processed_hdf5_collection(
-    paths: Sequence[Path], **kwargs: object
-) -> tuple[CanonicalDataset, list[PressureMapping]]:
+    paths: Sequence[Path], *, include_source_reference: bool = False, **kwargs: object
+) -> (
+    tuple[CanonicalDataset, list[PressureMapping]]
+    | tuple[CanonicalDataset, list[PressureMapping], SourceReferenceDataset]
+):
     if not paths:
         raise ConversionError("empty HDF5 collection")
     datasets: list[CanonicalDataset] = []
+    source_references: list[SourceReferenceDataset] = []
     mapping: list[PressureMapping] = []
     for path in paths:
-        dataset, local_mapping = read_processed_hdf5(path, **kwargs)
+        result = read_processed_hdf5(
+            path, include_source_reference=include_source_reference, **kwargs
+        )
+        if include_source_reference:
+            dataset, local_mapping, source_reference = result
+            source_references.append(source_reference)
+        else:
+            dataset, local_mapping = result
         datasets.append(dataset)
         if not mapping:
             mapping = local_mapping
@@ -393,7 +478,7 @@ def read_processed_hdf5_collection(
             raise ConversionError("multi-file canonical variables differ")
     order = np.argsort([item.time_seconds[0] for item in datasets])
     datasets = [datasets[index] for index in order]
-    return CanonicalDataset(
+    combined = CanonicalDataset(
         time_seconds=np.concatenate([item.time_seconds for item in datasets]),
         level_pa=first.level_pa,
         latitude=first.latitude,
@@ -404,4 +489,38 @@ def read_processed_hdf5_collection(
         planet=first.planet,
         metadata={**first.metadata, "source_count": len(datasets)},
         stages=[stage for item in datasets for stage in item.stages],
-    ), mapping
+    )
+    if not include_source_reference:
+        return combined, mapping
+    source_references = [source_references[index] for index in order]
+    source_first = source_references[0]
+    for item in source_references[1:]:
+        if (
+            item.shape[1:] != source_first.shape[1:]
+            or not np.allclose(item.latitude, source_first.latitude, atol=1e-8, rtol=0)
+            or not np.allclose(item.longitude, source_first.longitude, atol=1e-8, rtol=0)
+            or set(item.fields) != set(source_first.fields)
+        ):
+            raise ConversionError("multi-file source-reference grids or variables differ")
+    source_reference = SourceReferenceDataset(
+        time_seconds=np.concatenate(
+            [item.time_seconds for item in source_references]
+        ),
+        latitude=source_first.latitude,
+        longitude=source_first.longitude,
+        pressure_pa=np.concatenate(
+            [item.pressure_pa for item in source_references], axis=0
+        ),
+        fields={
+            name: np.concatenate(
+                [item.fields[name] for item in source_references], axis=0
+            )
+            for name in source_first.fields
+        },
+        units=source_first.units,
+        source_files=[
+            path for item in source_references for path in item.source_files
+        ],
+        source_dataset_names=source_first.source_dataset_names,
+    )
+    return combined, mapping, source_reference

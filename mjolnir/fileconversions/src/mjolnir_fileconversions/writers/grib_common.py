@@ -21,12 +21,14 @@ GRIB1_PARAMETERS = {
     "eastward_wind": (33, "m s-1"),
     "northward_wind": (34, "m s-1"),
     "omega": (39, "Pa s-1"),
+    "air_temperature": (11, "K"),
 }
 
 GRIB2_PARAMETERS = {
     "eastward_wind": (0, 2, 2, "m s-1"),
     "northward_wind": (0, 2, 3, "m s-1"),
     "omega": (0, 2, 8, "Pa s-1"),
+    "air_temperature": (0, 0, 0, "K"),
 }
 
 
@@ -182,6 +184,14 @@ def valid_datetime(dataset: CanonicalDataset, time_index: int, epoch: str = DEFA
     return grib_valid_datetime(float(dataset.time_seconds[time_index]), epoch)
 
 
+def message_level_indices(level_pa: np.ndarray) -> np.ndarray:
+    """Return stable top-to-bottom GRIB message indices (ascending pressure)."""
+    levels = np.asarray(level_pa, dtype=np.float64)
+    if levels.ndim != 1:
+        raise ConversionError("GRIB pressure levels must be one-dimensional")
+    return np.argsort(levels, kind="stable")
+
+
 def layout_paths(
     dataset: CanonicalDataset,
     output_dir: Path,
@@ -233,6 +243,22 @@ def git_commit() -> str:
         return "unknown"
 
 
+def git_worktree_dirty() -> bool | None:
+    """Report whether tracked or untracked repository content differs from HEAD."""
+    repository = Path(__file__).resolve().parents[4]
+    try:
+        process = subprocess.run(
+            ["git", "-C", str(repository), "status", "--porcelain"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return bool(process.stdout.strip())
+
+
 def write_sidecar(
     path: Path,
     dataset: CanonicalDataset,
@@ -260,6 +286,12 @@ def write_sidecar(
             "eccodes_param_id": 135,
             "units": "Pa s-1",
         },
+        "air_temperature": {
+            "grib1_wire_id": "11.2",
+            "grib2_id": "0/0/0",
+            "eccodes_param_id": 130,
+            "units": "K",
+        },
     }
     payload = {
         "source_files": [str(item) for item in dataset.source_files],
@@ -271,6 +303,10 @@ def write_sidecar(
             "longitude": [float(dataset.longitude[0]), float(dataset.longitude[-1]), int(dataset.longitude.size)],
         },
         "pressure_levels_pa": dataset.level_pa.astype(int).tolist(),
+        "message_pressure_order": "ascending_pa_top_to_bottom",
+        "message_pressure_levels_pa": dataset.level_pa[
+            message_level_indices(dataset.level_pa)
+        ].astype(int).tolist(),
         "pressure_level_policy": dataset.metadata.get("pressure_level_policy"),
         "vertical_interpolation_method": dataset.metadata.get(
             "vertical_interpolation_method"
@@ -294,6 +330,7 @@ def write_sidecar(
         },
         "software_version": "mjolnir-fileconversions 0.1.0",
         "git_commit": git_commit(),
+        "git_worktree_dirty": git_worktree_dirty(),
         "review_status": "pending manual review by Márkó",
         "generated_with": "OpenAI Codex assistance",
     }

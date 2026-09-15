@@ -15,6 +15,7 @@ from .grib_common import (
     GRIB2_PARAMETERS,
     eccodes_module,
     layout_paths,
+    message_level_indices,
     refuse_existing,
     set_regular_grid,
     set_valid_time,
@@ -79,7 +80,8 @@ def write_grib2_dataset(
             for time_index in range(dataset.time_seconds.size):
                 valid = valid_datetime(dataset, time_index, technical_epoch)
                 for field_name, field in dataset.fields.items():
-                    for level_index, level in enumerate(dataset.level_pa):
+                    for level_index in message_level_indices(dataset.level_pa):
+                        level = dataset.level_pa[level_index]
                         write_grib2_message(
                             streams[paths[(time_index, field_name)]],
                             field_name=field_name,
