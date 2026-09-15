@@ -11,6 +11,11 @@ Processed U/V are geographic winds because Mjolnir projects native Cartesian mom
 
 The exact pole has no unique local east/north basis. Zero U/V is a documented regularity convention inherited from the prior GRIB2 flow, not a claim that every physical polar vector must vanish. Scalar/omega poles use a zonal ring mean.
 
+`Temperature` is the instantaneous processed-HDF5 absolute air temperature in
+K, consistent with Mjolnir's `Pressure/(Rd*Rho)` definition. It is not
+`Temperature_mean` and not potential temperature. It follows the scalar pole
+rule and is interpolated as temperature linearly in `log(p)`.
+
 The GRIB date is a technical epoch plus model elapsed time and is not terrestrial observation time. Venus metadata not representable in GRIB1 is retained in JSON sidecars.
 
 GRIB1 pressure targets are selected from the source profile at the nearest
@@ -18,3 +23,10 @@ positive integer hPa inside the non-extrapolating common pressure range. Exact
 half-hPa ties go toward lower pressure and duplicate coordinates are omitted.
 Fields are evaluated at emitted targets by piecewise-linear interpolation in
 `log(p)`; pressure labels are never substituted for this evaluation.
+
+The decoded-GRIB reconstruction report applies the inverse grid/pressure
+interpolations only where the original pressure lies inside the GRIB pressure
+range. It is a diagnostic of a lossy remapping chain, not proof that the
+original field is exactly recoverable. Polar-influenced wind rings are reported
+separately because their inverse interpolation uses deliberately zeroed GRIB
+pole values.

@@ -13,7 +13,12 @@ transposed once to canonical order. `--regrid if-needed` skips a matching grid;
 one direct log-pressure interpolation. Exact hPa source coordinates remain an
 identity operation.
 
-U/V mapping uses names and CF standard names. Native `lagrangian_tendency_of_air_pressure` must have Pa/s units. `upward_air_velocity` is geometric m/s and requires explicit hydrostatic mode with density plus verified `--gravity`; it is never relabeled. NaN is encoded with a GRIB bitmap; Inf is rejected.
+U/V and temperature mapping use names and CF standard names. Absolute air
+temperature must have explicit Kelvin units and is encoded as GRIB1 table 2
+parameter 11. Native `lagrangian_tendency_of_air_pressure` must have Pa/s units.
+`upward_air_velocity` is geometric m/s and requires explicit hydrostatic mode
+with density plus verified `--gravity`; it is never relabeled. NaN is encoded
+with a GRIB bitmap; Inf is rejected.
 
 YAML defaults and zero-based per-file `--time-index/--time-indices` selection are supported. xarray opens inputs lazily and only selected time slices are materialized before canonical conversion. Multiple selected files are concatenated only after coordinate and variable parity checks.
 

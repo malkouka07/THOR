@@ -19,4 +19,10 @@ Representative native `esp_output_venus_1.h5` is 11,680,668 bytes. It stores fla
 
 `esp_output_planet_venus.h5` supplies radius 6,051,800 m, gravity 8.87 m/s², rotation rate −2.992e−7 s⁻¹, `Rd=188.9 J/(kg K)`, `Cp=850 J/(kg K)` and `P_Ref=100000 Pa`. `config_copy.0` and the planet HDF5 confirm Venus-specific configuration.
 
-Observed processed units inferred from upstream definitions: U/V/W are m/s; `W` is positive-up geometric layer-centre velocity. Pressure and `Pressure_mean` are Pa. No Pa/s native omega dataset was found. Missing/fill attributes are absent and representative arrays were finite. Remaining uncertainty: the hydrostatic `-rho*g*w` downstream mode is an approximation and has not been established as THOR's exact material `Dp/Dt`.
+Observed processed units inferred from upstream definitions: U/V/W are m/s;
+`W` is positive-up geometric layer-centre velocity; `Temperature` is
+instantaneous absolute temperature in K; Pressure and `Pressure_mean` are Pa.
+No Pa/s native omega dataset was found. Missing/fill attributes are absent and
+representative arrays were finite. Remaining uncertainty: the hydrostatic
+`-rho*g*w` downstream mode is an approximation and has not been established as
+THOR's exact material `Dp/Dt`.

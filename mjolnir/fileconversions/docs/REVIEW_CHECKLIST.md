@@ -14,10 +14,15 @@ Review status: pending manual review by Márkó
 * [ ] Legacy label-only `hpa-rounded` is excluded from production
 * [ ] Omega physical definition and sign are reviewed
 * [ ] Venus gravity provenance is verified
-* [ ] GRIB1 parameter identifiers 33/34/39 are independently checked
+* [ ] GRIB1 parameter identifiers 33/34/39/11 are independently checked
+* [ ] Temperature is confirmed as instantaneous absolute temperature in K
 * [ ] WMO omega `39.2` versus ECMWF local omega `135.128` is accepted
 * [ ] GRIB1 centre/table/level encoding matches the target consumer
 * [ ] Real-data round-trip validation is reviewed
+* [ ] Original-HDF5 reconstruction errors and polar regions are reviewed
+* [ ] `not_comparable` source pressures are confirmed to be non-extrapolated
+* [ ] Ascending top-to-bottom message order is accepted by RePLaT/wgrib
+* [ ] Any requested six-hour product uses genuine six-hour model snapshots
 * [ ] GRIB1–GRIB2 parity is reviewed
 * [ ] Optional wgrib/grib_dump validation is run in a richer environment
 * [ ] Full long-run processing may be authorized

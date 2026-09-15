@@ -16,7 +16,13 @@ as skipped; a 10 m wind can therefore never become a 10 hPa wind. GRIB bitmaps
 are decoded as missing masks and missing brackets remain missing during vertical
 interpolation.
 
-It never toggles an edition key. GRIB2 0/2/9 geometric W is unsupported rather than relabeled as GRIB1 pressure omega. Default `--on-unsupported error`; explicit skip is reported. GRIB2 fixed-surface scaled values are used to preserve exact Pa metadata even when ecCodes' convenience `level` is displayed in hPa.
+It never toggles an edition key. Supported mappings are U `0/2/2`, V `0/2/3`,
+pressure omega `0/2/8`, and absolute air temperature `0/0/0`. Temperature is
+re-encoded as GRIB1 table 2 parameter 11 in K. GRIB2 `0/2/9` geometric W is
+unsupported rather than relabeled as GRIB1 pressure omega. Default
+`--on-unsupported error`; explicit skip is reported. GRIB2 fixed-surface scaled
+values are used to preserve exact Pa metadata even when ecCodes' convenience
+`level` is displayed in hPa.
 
 GRIB1 level policies and output layouts match the HDF5 converter. The production
 default is `--pressure-level-policy hpa-aligned --level-encoding strict`.

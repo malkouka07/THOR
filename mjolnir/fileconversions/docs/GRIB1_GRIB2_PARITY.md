@@ -12,16 +12,21 @@ Review status: pending manual review by Márkó
 | Pressure conversion | Pa | same | `processing/pressure.py` | unit + reports |
 | Vertical interpolation | linear log(p) | same | `interpolate_log_pressure()` | unit |
 | Omega Pa/s | historical output had geometric W | strict/native/hydrostatic | `resolve_omega()` | unit + real hydrostatic GRIB2 smoke |
+| Temperature K | instantaneous absolute temperature | WMO 11 / GRIB2 0/0/0 | shared canonical field | unit + writer round-trip |
 | Time encoding | technical epoch | same canonical elapsed time | `processing/time.py` | unit/round-trip |
 | Missing values | finite checks | same | canonical validation/bitmap | unit path |
 | Output splitting | historical per-time combined | selectable | common layout function | round-trip tests |
 
-The synthetic writer comparison uses the same canonical arrays, grid, times and exact hPa-representable Pa levels. All nine decoded field/level pairs had maximum absolute difference 0 with identical 24-bit simple packing. Results are in `validation/grib1_vs_grib2_parity.csv`.
+The synthetic writer comparison uses the same canonical arrays, grid, times and
+exact hPa-representable Pa levels. Current tests include U, V and temperature
+in both editions; decoded field/level pairs pass the packing tolerance. The
+committed `validation/grib1_vs_grib2_parity.csv` remains preserved pre-change
+evidence from the earlier benchmark.
 
-The Venus5 benchmark keeps 20 integer-Pa levels in HDF5→GRIB2, then the
+The preserved pre-change Venus5 benchmark keeps 20 integer-Pa levels in HDF5→GRIB2, then the
 GRIB2→GRIB1 adapter derives and interpolates to the same 17 exact hPa surfaces
 as the direct HDF5→GRIB1 route. Direct and adapter-derived GRIB1 each contain
-561 messages. All comparisons pass at `0.002`; maximum absolute difference is
+561 messages (U/V/omega only). All comparisons pass at `0.002`; maximum absolute difference is
 `0.00162506104`. The nonzero difference includes the GRIB2 route's extra
 source-float→integer-Pa interpolation and packing. Products are outside Git at
 `/home/malkouka/THOR_conversion_data/outputs/venus_5_fileconversions/`.

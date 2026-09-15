@@ -29,7 +29,7 @@ The implemented backend is Python ecCodes. CDO is an independent reopen check. `
 
 Reproduce with the installation commands in the main README and `mjolnir/fileconversions/requirements.txt`. The wheels `eccodeslib` and `eckitlib` supply the local ecCodes runtime.
 
-All 36 tests pass and `pip check` reports no broken requirements. The test run
+All 60 tests pass and `pip check` reports no broken requirements. The test run
 currently emits non-fatal warnings from the NetCDF stack: one binary-extension
 size warning and xarray/NumPy 2.5 deprecation warnings. These do not change the
 test result, but remain recorded for a future dependency-compatibility pass.

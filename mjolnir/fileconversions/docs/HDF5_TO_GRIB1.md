@@ -13,7 +13,18 @@ original pressure coordinate. Use it with `--level-encoding strict`. This is a
 real field interpolation, not the legacy `hpa-rounded` label-only mode. The
 Venus5 target and production command are in [VENUS5_GRIB1.md](VENUS5_GRIB1.md).
 
-Use `--variables u v` with `--vertical-velocity-mode omit` when omega cannot be justified. `strict`, `native-omega`, `model-defined`, `hydrostatic` and `omit` are explicit physical modes. Output defaults to per-variable, no overwrite. Reports cover classification, stage detection, variable/pressure mapping and round-trip statistics.
+The default variables are `u v omega temperature`. Temperature comes from the
+instantaneous `Temperature` dataset and is encoded as absolute air temperature
+in K (GRIB1 table 2 parameter 11). Use `--variables u v` with
+`--vertical-velocity-mode omit` when omega or temperature is unavailable.
+`strict`, `native-omega`, `model-defined`, `hydrostatic` and `omit` are explicit
+physical modes. Output defaults to per-variable, no overwrite.
+
+Reports cover classification, stage detection, variable/pressure mapping,
+canonical packing round-trip statistics, and decoded GRIB1 reconstructed on
+the original HDF5 coordinates. Difference CSVs end with per-variable maximum
+and point-weighted mean absolute differences. See
+[HDF5_GRIB1_RECONSTRUCTION.md](HDF5_GRIB1_RECONSTRUCTION.md).
 
 `--config` supplies YAML defaults, with explicit CLI options winning. `--time-index/--time-indices` select filename source indices. An explicit `--planet-file` replaces companion discovery. An explicit `--grid-file` is accepted only when its independent regular coordinates agree with the processed product, preventing it from becoming a native-grid fallback or a second regrid.
 

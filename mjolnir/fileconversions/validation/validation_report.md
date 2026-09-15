@@ -3,11 +3,18 @@
 Generated with OpenAI Codex assistance
 Review status: pending manual review by Márkó
 
-- Unit tests: **passed**, 36 tests; one non-fatal system NumPy ABI warning recorded.
+- Current `grib1work` unit/integration suite: **passed**, 60 tests; non-fatal
+  NumPy/netCDF4 warnings are recorded in the environment documentation.
 - Synthetic GRIB1 write/read: **passed**.
 - Synthetic GRIB2 write/read: **passed**.
-- Synthetic GRIB1–GRIB2 parity: **passed**, 9/9 messages, maximum absolute difference 0.
+- Synthetic GRIB1–GRIB2 parity, including temperature: **passed**.
 - Venus5 hPa target derivation: **passed**, 17 unique exact GRIB1 levels from 20 source levels; no extrapolation.
+- Current one-time Mjolnir HDF5 → GRIB1 smoke: **passed**, 68/68 messages
+  (U/V/omega/temperature, 1 time, 17 levels), ascending pressure order; ecCodes
+  reopened all files. Original-HDF5 reconstruction compares 15/20 source
+  levels without extrapolation.
+- The following full Venus results are preserved pre-change evidence and have
+  not yet been regenerated with temperature/ascending message order.
 - Real Mjolnir-processed HDF5 → GRIB1: **passed**, 561/561 messages (U/V/omega, 11 times, 17 levels); ecCodes and CDO reopened all files.
 - Real Mjolnir-processed HDF5 → GRIB2 benchmark: **passed**, 660/660 messages (3 fields, 11 times, 20 levels).
 - Real GRIB2 → GRIB1 stack adapter: **passed**, 561/561 messages; original validity datetimes retained.

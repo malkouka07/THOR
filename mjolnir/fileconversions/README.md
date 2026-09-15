@@ -4,14 +4,15 @@
 
 # Unified Mjolnir file conversions
 
-The `mjolnir_advance` branch includes one strict, reusable conversion system under
+The `grib1work` branch, based on `mjolnir_advance`, develops one strict, reusable conversion system under
 `mjolnir/fileconversions/` for:
 
 * Mjolnir-processed HDF5 → GRIB Edition 1;
 * the migrated Mjolnir-processed HDF5 → GRIB Edition 2 path;
 * GRIB2 → GRIB1 by explicit message decoding and re-encoding;
 * CF-like NetCDF → GRIB1;
-* GRIB structure, round-trip and GRIB1/GRIB2 parity validation.
+* GRIB structure, packing round-trip, original-HDF5 reconstruction and
+  GRIB1/GRIB2 parity validation.
 
 The completed Venus5 recipe, exact pressure list, generated file locations and
 validation results are in [VENUS5_GRIB1.md](docs/VENUS5_GRIB1.md).
@@ -31,8 +32,8 @@ verified Mjolnir-processed HDF5 / CF NetCDF / decoded GRIB2
 canonical (time, level, latitude, longitude), pressure in Pa
     ▼
 shared grid, poles, pressure, time, missing-value and omega logic
-    ├── GRIB1 writer (WMO table 2: 33, 34, 39)
-    ├── GRIB2 writer (0/2/2, 0/2/3, 0/2/8)
+    ├── GRIB1 writer (WMO table 2: 33, 34, 39, 11)
+    ├── GRIB2 writer (0/2/2, 0/2/3, 0/2/8, 0/0/0)
     └── optional diagnostic NetCDF
 ```
 
@@ -86,7 +87,7 @@ The HDF5 adapter accepts only `mjolnir_processed`. `native_icosahedral`, `metada
   --input /path/to/pgrid/regrid_venus_1.h5 \
   --input-kind mjolnir-processed \
   --output-dir /outside/repository/hdf5_to_grib1 \
-  --variables u v omega \
+  --variables u v omega temperature \
   --lat-step 4 --lon-step 4 \
   --pressure-level-policy hpa-aligned \
   --level-encoding strict \
@@ -107,6 +108,10 @@ For omega, the default `strict` mode accepts only a verified Pa/s variable. Mjol
 ```
 
 This computes `omega = -rho*g*w` on collocated processed fields, using `Gravit=8.87 m s-2` from the Venus planet HDF5. It is documented as a hydrostatic approximation, not an exact native model variable.
+
+The instantaneous HDF5 `Temperature` field is emitted as absolute air
+temperature in K. GRIB1 uses WMO table 2 parameter 11 (`t`, ecCodes parameter
+130); GRIB2 uses `0/0/0`. Temperature is a scalar under the pole convention.
 
 ## Migrated HDF5 → GRIB2
 
@@ -131,7 +136,7 @@ Messages are grouped into complete pressure stacks by valid time and variable.
 The adapter rejects duplicate/incomplete stacks or differing grids, performs
 the same log-pressure interpolation, explicitly re-encodes the result and
 reopens it. Native GRIB2 validity datetimes are copied exactly. Supported
-parameters are `0/2/2`, `0/2/3` and `0/2/8`; geometric `0/2/9` is not relabelled.
+parameters are `0/2/2`, `0/2/3`, `0/2/8` and `0/0/0`; geometric `0/2/9` is not relabelled.
 
 ## NetCDF → GRIB1
 
@@ -139,14 +144,14 @@ parameters are `0/2/2`, `0/2/3` and `0/2/8`; geometric `0/2/9` is not relabelled
 .venv-fileconversions/bin/python mjolnir/fileconversions/scripts/netcdf_to_grib1.py \
   --input /path/to/input.nc \
   --output-dir /outside/repository/netcdf_to_grib1 \
-  --variables u v omega \
+  --variables u v omega temperature \
   --regrid if-needed \
   --pressure-level-policy hpa-aligned \
   --level-encoding strict \
   --vertical-velocity-mode strict
 ```
 
-Coordinates are identified through names, `standard_name`, `axis`, units and dimensions. Existing correct grids and integer pressure levels are not interpolated again. A NetCDF `upward_air_velocity` in m/s is never emitted as omega without an explicit physical mode.
+Coordinates are identified through names, `standard_name`, `axis`, units and dimensions. Existing correct grids and integer pressure levels are not interpolated again. Temperature must be explicitly identified as absolute air temperature in K. A NetCDF `upward_air_velocity` in m/s is never emitted as omega without an explicit physical mode.
 
 ## Grid, poles and dimension order
 
@@ -160,16 +165,49 @@ deduplicates them and interpolates linearly in `log(p)` without extrapolation.
 It works directly from the original HDF5/NetCDF coordinate, avoiding an
 intermediate integer-Pa double interpolation.
 
+Within every valid-time/variable stack, both GRIB writers emit messages in
+ascending pressure order (top of atmosphere to bottom of atmosphere). For the
+Venus5 GRIB1 profile this is `1, 3, 8, …, 995 hPa`. This ordering is independent
+of the canonical array's internal pressure direction and applies to
+`per-variable`, `per-time` and `combined` layouts.
+
 Model elapsed time is preserved. HDF5/NetCDF elapsed seconds are mapped to the
 configurable technical epoch `2000-01-01T00:00:00Z`; it is not claimed to be an
 Earth observation date. GRIB2 validity datetimes are retained exactly.
 Sub-minute values that GRIB1 cannot preserve stop rather than truncate.
 
+The preserved Venus5 benchmark is daily: its native elapsed times are
+`0, 86400, …, 864000 s`. The converter does not fabricate intermediate times.
+Genuine six-hour output requires actual Mjolnir snapshots every `21600 s`, with
+matching native THOR companion files carrying those model times. With the
+benchmark's `300 s` THOR timestep, generate those model outputs using
+`n_out=72`, then run Mjolnir and the converter. Temporal interpolation of the
+daily files is intentionally not part of this workflow.
+
 For HDF5, `--time-index/--time-indices` select the source index encoded in `regrid_<simulation>_<index>.h5`; for NetCDF and GRIB2 they select zero-based logical time positions. `--grid-file` cross-checks an optional regular Mjolnir grid and rejects native topology, while `--planet-file` overrides companion-file discovery.
 
 ## Output and validation
 
-The default layout is `per-variable`; `per-time` and `combined` are also supported. Existing outputs are protected unless `--overwrite` is explicit. Every GRIB output has `<file>.metadata.json` with source files, planet parameters, grid, pressure levels, omega method, Git commit and pending review status.
+The default layout is `per-variable`; `per-time` and `combined` are also
+supported. Existing outputs are protected unless `--overwrite` is explicit.
+Every GRIB output has `<file>.metadata.json` with source files, planet
+parameters, the canonical pressure coordinate, the ascending message-pressure
+order, omega method, Git commit and pending review status. Structural validation
+also checks that each field/time pressure stack is strictly ascending.
+The sidecar separately records whether the Git worktree was dirty, so an
+uncommitted development artifact cannot be mistaken for the recorded commit.
+
+Numeric difference CSVs end with schema-valid `row_type=summary` rows,
+separated by variable and units. They report the largest absolute difference
+and the point-count-weighted average absolute difference. HDF5→GRIB1 also
+decodes and interpolates GRIB1 back onto the original HDF5 coordinates without
+pressure extrapolation. See
+[HDF5_GRIB1_RECONSTRUCTION.md](docs/HDF5_GRIB1_RECONSTRUCTION.md) for its exact
+meaning and the optional pointwise NetCDF output.
+
+The ordering change affects newly written files only. GRIB files generated by
+an older revision retain their original message order and must be regenerated;
+the converter never rewrites an existing product implicitly.
 
 ```bash
 .venv-fileconversions/bin/python mjolnir/fileconversions/scripts/validate_grib.py \
@@ -191,10 +229,12 @@ omega sign, HDF5/NetCDF/GRIB2 adapters, native times, round-trip and parity.
 Generated Venus5 products are under
 `/home/malkouka/THOR_conversion_data/outputs/venus_5_fileconversions/` and are not committed.
 
-The 36-test suite passes. Direct HDF5→GRIB1 and GRIB2→GRIB1 each produced 561
-real messages (3 fields × 11 times × 17 levels); the intermediate GRIB2 has 660
-messages on 20 levels. All 561 cross-route comparisons pass at `0.002`, with a
-maximum absolute difference of `0.00162506104`.
+The current 60-test suite covers all four variables, ascending message order,
+weighted CSV summaries and decoded-GRIB reconstruction without extrapolation.
+The older preserved full-run artifacts contain three fields and retain their
+pre-change ordering; their historical validation numbers are documented in
+[VENUS5_GRIB1.md](docs/VENUS5_GRIB1.md). A current one-time smoke run produces
+four GRIB1 files and 68 messages (4 fields × 17 levels).
 
 ## Reproducibility and review
 
