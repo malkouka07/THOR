@@ -64,6 +64,22 @@ def test_grib1_write_read_roundtrip_and_parameters(tmp_path):
     assert all(row["status"] == "passed" for row in rows)
     assert all(row["status"] == "passed" for row in roundtrip)
     assert sum(row["variable"] == "air_temperature" for row in roundtrip) == 2
+    assert all(
+        row["percentage_reference"] == "canonical_writer_input"
+        for row in roundtrip
+    )
+    temperature_roundtrip = [
+        row for row in roundtrip if row["variable"] == "air_temperature"
+    ]
+    expected_temperature_maximum = float(
+        np.max(np.abs(dataset.fields["air_temperature"]))
+    )
+    assert all(
+        row["reference_maximum_absolute_value"]
+        == pytest.approx(expected_temperature_maximum)
+        and row["reference_absolute_value_sum"] > 0
+        for row in temperature_roundtrip
+    )
     assert all(item.absolute_error_pa == 0 for item in encoded)
     temperature_messages = [
         item

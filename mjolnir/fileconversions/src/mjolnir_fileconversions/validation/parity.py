@@ -58,9 +58,17 @@ def compare_grib_collections(
         missing_mismatch = int(np.count_nonzero(left_missing != right_missing))
         finite = ~left_missing & ~right_missing
         diff = (left.values - right.values)[finite]
+        absolute_difference = np.abs(diff)
+        reference_absolute = np.abs(right.values[finite])
         scale = np.sqrt(np.mean(np.square(right.values[np.isfinite(right.values)])))
         rms = float(np.sqrt(np.mean(np.square(diff)))) if diff.size else float("nan")
-        max_abs = float(np.max(np.abs(diff))) if diff.size else float("nan")
+        max_abs = float(np.max(absolute_difference)) if diff.size else float("nan")
+        reference_max_abs = (
+            float(np.max(reference_absolute)) if diff.size else float("nan")
+        )
+        reference_mean_abs = (
+            float(np.mean(reference_absolute)) if diff.size else float("nan")
+        )
         rows.append(
             {
                 "input_file": f"{left.path};{right.path}",
@@ -74,7 +82,12 @@ def compare_grib_collections(
                 "grib1_max": float(np.nanmax(left.values)),
                 "grib2_max": float(np.nanmax(right.values)),
                 "max_absolute_difference": max_abs,
-                "mean_absolute_difference": float(np.mean(np.abs(diff))),
+                "mean_absolute_difference": float(np.mean(absolute_difference)),
+                "reference_maximum_absolute_value": reference_max_abs,
+                "reference_mean_absolute_value": reference_mean_abs,
+                "reference_absolute_value_sum": float(np.sum(reference_absolute)),
+                "absolute_difference_sum": float(np.sum(absolute_difference)),
+                "percentage_reference": "decoded_grib2",
                 "compared_value_count": int(diff.size),
                 "missing_mask_mismatch_count": missing_mismatch,
                 "rms_difference": rms,

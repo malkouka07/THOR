@@ -199,9 +199,20 @@ uncommitted development artifact cannot be mistaken for the recorded commit.
 
 Numeric difference CSVs end with schema-valid `row_type=summary` rows,
 separated by variable and units. They report the largest absolute difference
-and the point-count-weighted average absolute difference. HDF5→GRIB1 also
-decodes and interpolates GRIB1 back onto the original HDF5 coordinates without
-pressure extrapolation. See
+and the point-count-weighted average absolute difference, plus two normalized
+percentages over the same common finite points. For error `E` and reference
+value `R`, these are `100 × max(|E|) / max(|R|)` and
+`100 × sum(|E|) / sum(|R|)`. The reference is the canonical writer input
+for packing round trips, the original HDF5 field for reconstruction, and the
+decoded GRIB2/right-hand collection for parity. These are aggregate normalized
+errors, not pointwise mean absolute percentage error: pointwise division is
+unstable where wind or omega crosses zero. A zero reference gives `0%` only for
+zero error; otherwise the percentage is undefined (`NaN`).
+
+HDF5→GRIB1 also decodes and interpolates GRIB1 back onto the original HDF5
+coordinates without pressure extrapolation. Classification, mapping,
+provenance, pressure-coordinate and structural-validation CSVs do not compare
+field values and therefore do not receive difference footers. See
 [HDF5_GRIB1_RECONSTRUCTION.md](docs/HDF5_GRIB1_RECONSTRUCTION.md) for its exact
 meaning and the optional pointwise NetCDF output.
 
@@ -229,8 +240,9 @@ omega sign, HDF5/NetCDF/GRIB2 adapters, native times, round-trip and parity.
 Generated Venus5 products are under
 `/home/malkouka/THOR_conversion_data/outputs/venus_5_fileconversions/` and are not committed.
 
-The current 60-test suite covers all four variables, ascending message order,
-weighted CSV summaries and decoded-GRIB reconstruction without extrapolation.
+The current 66-test suite covers all four variables, ascending message order,
+weighted absolute and percentage CSV summaries, and decoded-GRIB reconstruction
+without extrapolation.
 The older preserved full-run artifacts contain three fields and retain their
 pre-change ordering; their historical validation numbers are documented in
 [VENUS5_GRIB1.md](docs/VENUS5_GRIB1.md). A current one-time smoke run produces

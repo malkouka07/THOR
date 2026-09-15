@@ -287,14 +287,20 @@ def roundtrip_against_canonical(
                 missing_mismatch = int(np.count_nonzero(expected_missing != decoded_missing))
                 finite = ~expected_missing & ~decoded_missing
                 difference = item.values[finite] - expected[finite]
+                absolute_difference = np.abs(difference)
+                reference_absolute = np.abs(expected[finite])
                 if difference.size:
-                    max_abs = float(np.max(np.abs(difference)))
-                    mean_abs = float(np.mean(np.abs(difference)))
+                    max_abs = float(np.max(absolute_difference))
+                    mean_abs = float(np.mean(absolute_difference))
                     rms = float(np.sqrt(np.mean(np.square(difference))))
+                    reference_max_abs = float(np.max(reference_absolute))
+                    reference_mean_abs = float(np.mean(reference_absolute))
                 else:
                     max_abs = float("nan")
                     mean_abs = float("nan")
                     rms = float("nan")
+                    reference_max_abs = float("nan")
+                    reference_mean_abs = float("nan")
                 stat = finite_statistics(item.values)
                 rows.append(
                     {
@@ -317,6 +323,15 @@ def roundtrip_against_canonical(
                         "round_trip_maximum_absolute_error": max_abs,
                         "round_trip_mean_absolute_error": mean_abs,
                         "round_trip_rms_error": rms,
+                        "reference_maximum_absolute_value": reference_max_abs,
+                        "reference_mean_absolute_value": reference_mean_abs,
+                        "reference_absolute_value_sum": float(
+                            np.sum(reference_absolute)
+                        ),
+                        "absolute_difference_sum": float(
+                            np.sum(absolute_difference)
+                        ),
+                        "percentage_reference": "canonical_writer_input",
                         "compared_value_count": int(difference.size),
                         "missing_mask_mismatch_count": missing_mismatch,
                         "packing_tolerance": packing_tolerance,

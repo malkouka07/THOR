@@ -150,10 +150,13 @@ def _statistics_row(
     count = int(difference.size)
     absolute = np.abs(difference)
     source_values = original[comparable]
+    reference_absolute = np.abs(source_values)
     reconstructed_values = reconstructed[comparable]
     if count:
         maximum_absolute = float(np.max(absolute))
         mean_absolute = float(np.mean(absolute))
+        reference_maximum_absolute = float(np.max(reference_absolute))
+        reference_mean_absolute = float(np.mean(reference_absolute))
         rms = float(np.sqrt(np.mean(np.square(difference))))
         bias = float(np.mean(difference))
         source_rms = float(np.sqrt(np.mean(np.square(source_values))))
@@ -176,6 +179,7 @@ def _statistics_row(
         reason = ""
     else:
         maximum_absolute = mean_absolute = rms = bias = float("nan")
+        reference_maximum_absolute = reference_mean_absolute = float("nan")
         relative_rms = correlation = float("nan")
         area_mean_absolute = area_rms = area_bias = float("nan")
         original_min = original_max = float("nan")
@@ -216,7 +220,11 @@ def _statistics_row(
         "reconstructed_maximum": reconstructed_max,
         "maximum_absolute_difference": maximum_absolute,
         "mean_absolute_difference": mean_absolute,
+        "reference_maximum_absolute_value": reference_maximum_absolute,
+        "reference_mean_absolute_value": reference_mean_absolute,
+        "reference_absolute_value_sum": float(np.sum(reference_absolute)),
         "absolute_difference_sum": float(np.sum(absolute)),
+        "percentage_reference": "original_hdf5",
         "root_mean_square_difference": rms,
         "mean_signed_difference": bias,
         "relative_rms_difference_to_original_rms": relative_rms,

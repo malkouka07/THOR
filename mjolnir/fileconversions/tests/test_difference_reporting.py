@@ -161,3 +161,200 @@ def test_zero_count_group_gets_explicit_empty_summary():
     assert summary["compared_point_count"] == 0
     assert math.isnan(summary["maximum_absolute_difference"])
     assert math.isnan(summary["mean_absolute_difference"])
+
+
+def test_percentage_summary_uses_pooled_reference_scales_and_counts():
+    rows = [
+        {
+            "variable": "eastward_wind",
+            "units": "m s-1",
+            "maximum_absolute_difference": 1.0,
+            "mean_absolute_difference": 1.0,
+            "compared_point_count": 1,
+            "reference_maximum_absolute_value": 1.0,
+            "reference_mean_absolute_value": 1.0,
+            "absolute_difference_sum": 1.0,
+            "reference_absolute_value_sum": 1.0,
+        },
+        {
+            "variable": "eastward_wind",
+            "units": "m s-1",
+            "maximum_absolute_difference": 3.0,
+            "mean_absolute_difference": 3.0,
+            "compared_point_count": 9,
+            "reference_maximum_absolute_value": 100.0,
+            "reference_mean_absolute_value": 100.0,
+            "absolute_difference_sum": 27.0,
+            "reference_absolute_value_sum": 900.0,
+        },
+    ]
+
+    result = with_difference_summary_rows(
+        rows,
+        reference_maximum_field="reference_maximum_absolute_value",
+        reference_mean_field="reference_mean_absolute_value",
+        difference_sum_field="absolute_difference_sum",
+        reference_sum_field="reference_absolute_value_sum",
+    )
+    first, second, summary = result
+
+    maximum_percentage = (
+        "maximum_absolute_difference_percent_of_reference_maximum"
+    )
+    mean_percentage = (
+        "mean_absolute_difference_percent_of_reference_mean_absolute"
+    )
+    assert first[maximum_percentage] == ""
+    assert second[maximum_percentage] == ""
+    assert summary["maximum_absolute_difference"] == 3.0
+    assert summary["reference_maximum_absolute_value"] == 100.0
+    # The footer is global max(error) / global max(reference), not the
+    # maximum of the two detail percentages (which would be 100%).
+    assert summary[maximum_percentage] == pytest.approx(3.0)
+
+    expected_difference_mean = (1.0 * 1 + 3.0 * 9) / 10
+    expected_reference_mean = (1.0 * 1 + 100.0 * 9) / 10
+    assert summary["mean_absolute_difference"] == pytest.approx(
+        expected_difference_mean
+    )
+    assert summary["reference_mean_absolute_value"] == pytest.approx(
+        expected_reference_mean
+    )
+    assert summary["absolute_difference_sum"] == pytest.approx(28.0)
+    assert summary["reference_absolute_value_sum"] == pytest.approx(901.0)
+    assert summary[mean_percentage] == pytest.approx(
+        100.0 * expected_difference_mean / expected_reference_mean
+    )
+
+
+def test_percentage_of_exact_zero_reference_is_zero():
+    rows = [
+        {
+            "variable": "omega",
+            "units": "Pa s-1",
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "compared_point_count": 12,
+            "reference_maximum_absolute_value": 0.0,
+            "reference_mean_absolute_value": 0.0,
+        }
+    ]
+
+    result = with_difference_summary_rows(
+        rows,
+        reference_maximum_field="reference_maximum_absolute_value",
+        reference_mean_field="reference_mean_absolute_value",
+    )
+
+    detail, summary = result
+    assert detail["maximum_absolute_difference_percent_of_reference_maximum"] == ""
+    assert detail["mean_absolute_difference_percent_of_reference_mean_absolute"] == ""
+    assert (
+        summary["maximum_absolute_difference_percent_of_reference_maximum"]
+        == 0.0
+    )
+    assert (
+        summary["mean_absolute_difference_percent_of_reference_mean_absolute"]
+        == 0.0
+    )
+
+
+def test_percentage_of_nonzero_error_against_zero_reference_is_nan():
+    rows = [
+        {
+            "variable": "omega",
+            "units": "Pa s-1",
+            "maximum_absolute_difference": 0.2,
+            "mean_absolute_difference": 0.1,
+            "compared_point_count": 12,
+            "reference_maximum_absolute_value": 0.0,
+            "reference_mean_absolute_value": 0.0,
+        }
+    ]
+
+    result = with_difference_summary_rows(
+        rows,
+        reference_maximum_field="reference_maximum_absolute_value",
+        reference_mean_field="reference_mean_absolute_value",
+    )
+
+    detail, summary = result
+    assert detail["maximum_absolute_difference_percent_of_reference_maximum"] == ""
+    assert detail["mean_absolute_difference_percent_of_reference_mean_absolute"] == ""
+    assert math.isnan(
+        summary["maximum_absolute_difference_percent_of_reference_maximum"]
+    )
+    assert math.isnan(
+        summary["mean_absolute_difference_percent_of_reference_mean_absolute"]
+    )
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [
+        {"reference_maximum_field": "reference_maximum_absolute_value"},
+        {"reference_mean_field": "reference_mean_absolute_value"},
+    ],
+)
+def test_percentage_reference_fields_must_be_configured_together(configured):
+    rows = [
+        {
+            "variable": "air_temperature",
+            "units": "K",
+            "maximum_absolute_difference": 1.0,
+            "mean_absolute_difference": 0.5,
+            "compared_point_count": 3,
+            "reference_maximum_absolute_value": 280.0,
+            "reference_mean_absolute_value": 270.0,
+        }
+    ]
+
+    with pytest.raises(ValueError, match="must be configured together"):
+        with_difference_summary_rows(rows, **configured)
+
+
+def test_percentage_csv_footer_uses_same_rectangular_schema(tmp_path):
+    rows = [
+        {
+            "variable": "air_temperature",
+            "units": "K",
+            "time": "t0",
+            "maximum_absolute_difference": 0.4,
+            "mean_absolute_difference": 0.2,
+            "compared_point_count": 5,
+            "reference_maximum_absolute_value": 300.0,
+            "reference_mean_absolute_value": 250.0,
+        }
+    ]
+    path = tmp_path / "percentage_differences.csv"
+
+    write_difference_csv(
+        path,
+        rows,
+        reference_maximum_field="reference_maximum_absolute_value",
+        reference_mean_field="reference_mean_absolute_value",
+    )
+
+    with path.open(newline="", encoding="utf-8") as stream:
+        reader = csv.DictReader(stream)
+        written = list(reader)
+    assert len(written) == 2
+    assert [row["row_type"] for row in written] == ["detail", "summary"]
+    assert (
+        "maximum_absolute_difference_percent_of_reference_maximum"
+        in reader.fieldnames
+    )
+    assert (
+        "mean_absolute_difference_percent_of_reference_mean_absolute"
+        in reader.fieldnames
+    )
+    assert float(
+        written[-1][
+            "maximum_absolute_difference_percent_of_reference_maximum"
+        ]
+    ) == pytest.approx(100.0 * 0.4 / 300.0)
+    assert float(
+        written[-1][
+            "mean_absolute_difference_percent_of_reference_mean_absolute"
+        ]
+    ) == pytest.approx(100.0 * 0.2 / 250.0)

@@ -21,6 +21,8 @@ def test_same_canonical_fields_have_packing_parity(tmp_path):
     temperature = [row for row in rows if row["variable"] == "air_temperature"]
     assert len(temperature) == 2
     assert {row["units"] for row in temperature} == {"K"}
+    assert {row["percentage_reference"] for row in rows} == {"decoded_grib2"}
+    assert all(row["reference_maximum_absolute_value"] > 0 for row in temperature)
     assert all(row["parity_status"] == "passed" for row in rows)
     assert max(row["max_absolute_difference"] for row in rows) <= 1e-5
 
@@ -52,6 +54,17 @@ def test_compare_command_appends_per_variable_summary_rows(tmp_path):
         "northward_wind",
         "air_temperature",
     }
+    assert {row["percentage_reference"] for row in written[-3:]} == {
+        "decoded_grib2"
+    }
+    assert all(
+        row["maximum_absolute_difference_percent_of_reference_maximum"]
+        for row in written[-3:]
+    )
+    assert all(
+        row["mean_absolute_difference_percent_of_reference_mean_absolute"]
+        for row in written[-3:]
+    )
 
 
 def test_parity_rejects_temperature_missing_from_only_one_edition(tmp_path):

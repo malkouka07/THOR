@@ -24,6 +24,7 @@ from .validation.reconstruction import (
     write_reconstruction_netcdf,
 )
 from .validation.reporting import (
+    percentage_of_reference,
     write_csv,
     write_difference_csv,
     write_markdown_report,
@@ -264,9 +265,14 @@ def _post_validate(
         write_difference_csv(
             report_dir / "roundtrip_statistics.csv",
             roundtrip_rows,
+            group_fields=("percentage_reference",),
             maximum_field="round_trip_maximum_absolute_error",
             mean_field="round_trip_mean_absolute_error",
             count_field="compared_value_count",
+            reference_maximum_field="reference_maximum_absolute_value",
+            reference_mean_field="reference_mean_absolute_value",
+            difference_sum_field="absolute_difference_sum",
+            reference_sum_field="reference_absolute_value_sum",
         )
     status = (
         "passed"
@@ -362,12 +368,22 @@ def convert_hdf5(args, *, edition: int) -> list[Path]:
         write_difference_csv(
             report_dir / "hdf5_grib1_reconstruction_statistics.csv",
             reconstruction.rows,
-            group_fields=("comparison_stage", "region"),
+            group_fields=(
+                "comparison_stage",
+                "region",
+                "percentage_reference",
+            ),
             count_field="compared_value_count",
+            reference_maximum_field="reference_maximum_absolute_value",
+            reference_mean_field="reference_mean_absolute_value",
+            difference_sum_field="absolute_difference_sum",
+            reference_sum_field="reference_absolute_value_sum",
         )
         reconstruction_lines = [
             "- Difference convention: decoded GRIB1 reconstructed minus original HDF5.",
             "- Vertical extrapolation: **forbidden**; out-of-range values are reported as not comparable.",
+            "- Maximum percentage: 100 × maximum absolute difference / maximum absolute original-HDF5 value.",
+            "- Average percentage: 100 × total absolute difference / total absolute original-HDF5 value.",
             "- Interpretation: descriptive diagnostics only; no scientific pass/fail threshold is applied.",
         ]
         for field_name in source_reference.fields:
@@ -393,10 +409,28 @@ def convert_hdf5(args, *, edition: int) -> list[Path]:
                 * int(row["compared_value_count"])
                 for row in measured
             ) / count
+            reference_maximum = max(
+                float(row["reference_maximum_absolute_value"])
+                for row in measured
+            )
+            absolute_difference_sum = sum(
+                float(row["absolute_difference_sum"]) for row in measured
+            )
+            reference_absolute_sum = sum(
+                float(row["reference_absolute_value_sum"]) for row in measured
+            )
+            maximum_percentage = percentage_of_reference(
+                maximum, reference_maximum
+            )
+            mean_percentage = percentage_of_reference(
+                absolute_difference_sum, reference_absolute_sum
+            )
             reconstruction_lines.append(
                 f"- {field_name}: compared {count}/{possible} source-grid values; "
-                f"maximum absolute difference {maximum:.9g} {source_reference.units[field_name]}; "
-                f"mean absolute difference {mean:.9g} {source_reference.units[field_name]}."
+                f"maximum absolute difference {maximum:.9g} {source_reference.units[field_name]} "
+                f"({maximum_percentage:.9g}% of reference maximum); "
+                f"mean absolute difference {mean:.9g} {source_reference.units[field_name]} "
+                f"({mean_percentage:.9g}% of reference mean absolute magnitude)."
             )
         write_markdown_report(
             report_dir / "hdf5_grib1_reconstruction_report.md",
@@ -660,7 +694,12 @@ def compare_command(args) -> list[dict[str, object]]:
     write_difference_csv(
         Path(args.report).expanduser().resolve(),
         rows,
+        group_fields=("percentage_reference",),
         maximum_field="max_absolute_difference",
         count_field="compared_value_count",
+        reference_maximum_field="reference_maximum_absolute_value",
+        reference_mean_field="reference_mean_absolute_value",
+        difference_sum_field="absolute_difference_sum",
+        reference_sum_field="reference_absolute_value_sum",
     )
     return rows

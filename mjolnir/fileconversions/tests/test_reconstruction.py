@@ -171,6 +171,10 @@ def test_reconstruction_rows_integrate_with_weighted_csv_summaries(
         result.rows,
         group_fields=("comparison_stage", "region"),
         count_field="compared_value_count",
+        reference_maximum_field="reference_maximum_absolute_value",
+        reference_mean_field="reference_mean_absolute_value",
+        difference_sum_field="absolute_difference_sum",
+        reference_sum_field="reference_absolute_value_sum",
     )
     details = summarized[: len(result.rows)]
     summaries = summarized[len(result.rows) :]
@@ -189,3 +193,16 @@ def test_reconstruction_rows_integrate_with_weighted_csv_summaries(
     assert all_temperature["compared_value_count"] == 18
     assert all_temperature["maximum_absolute_difference"] < 1e-12
     assert all_temperature["mean_absolute_difference"] < 1e-12
+    assert all_temperature["reference_maximum_absolute_value"] > 0
+    assert (
+        all_temperature[
+            "maximum_absolute_difference_percent_of_reference_maximum"
+        ]
+        < 1e-12
+    )
+    assert (
+        all_temperature[
+            "mean_absolute_difference_percent_of_reference_mean_absolute"
+        ]
+        < 1e-12
+    )

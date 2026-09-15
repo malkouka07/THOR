@@ -23,6 +23,17 @@ in both editions; decoded field/level pairs pass the packing tolerance. The
 committed `validation/grib1_vs_grib2_parity.csv` remains preserved pre-change
 evidence from the earlier benchmark.
 
+Parity CSV footers remain separate by variable and units. For decoded
+`E = GRIB1 - GRIB2` and reference `R = GRIB2` on their common finite points, the
+normalized maximum is `100 × max(|E|) / max(|R|)` and the normalized mean is
+`100 × sum(|E|) / sum(|R|)`. Here GRIB2 means the decoded right-hand
+collection supplied to the comparison. These aggregate ratios are not
+pointwise mean absolute percentage error, which is unstable for wind and omega
+near zero. An all-zero reference and zero error gives `0%`; nonzero error
+against an all-zero reference, or no comparable points, gives `NaN`. Mapping,
+provenance, pressure and structural CSVs do not compare field values and do not
+receive these footers.
+
 The preserved pre-change Venus5 benchmark keeps 20 integer-Pa levels in HDF5→GRIB2, then the
 GRIB2→GRIB1 adapter derives and interpolates to the same 17 exact hPa surfaces
 as the direct HDF5→GRIB1 route. Direct and adapter-derived GRIB1 each contain
