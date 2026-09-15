@@ -5,6 +5,8 @@ This repository is an unofficial fork of [exoclime/THOR](https://github.com/exoc
 Additional tools and notes in this fork:
 - `mjolnir/pgrid_merge` for merging fragmented pressure-grid regrids
 - fork-specific plotting instructions in `docs/pgrid_merge.md`
+- `mjolnir/fileconversions` for validated HDF5, NetCDF, GRIB1 and GRIB2
+  conversion workflows on the `mjolnir_advance` branch
 
 For upstream plotting background, see:
 - https://github.com/exoclime/THOR/wiki/Python-plotting

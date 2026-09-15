@@ -4,7 +4,8 @@
 
 # Unified Mjolnir file conversions
 
-The `fileconversions` branch provides one strict, reusable conversion system for:
+The `mjolnir_advance` branch includes one strict, reusable conversion system under
+`mjolnir/fileconversions/` for:
 
 * Mjolnir-processed HDF5 → GRIB Edition 1;
 * the migrated Mjolnir-processed HDF5 → GRIB Edition 2 path;
@@ -39,17 +40,28 @@ Both GRIB writers consume the same `CanonicalDataset` arrays. Format-specific co
 
 ## What existed and what changed
 
-The prior GRIB2 work is commit `8fe5da7` on `origin/replat`, under `replat_conversion_last100_50591_50690/`. It used `regrid_height_*.h5`, periodic bilinear remapping, explicit poles, integer-Pa/log-pressure interpolation, a standard NetCDF intermediate and CDO GRIB2 encoding. It correctly retained Mjolnir `W` as geometric `m s-1`; it did not produce omega.
+The prior GRIB2 work is preserved in historical commit `8fe5da7` (formerly the
+retired `replat` branch), under `replat_conversion_last100_50591_50690/`. It
+used `regrid_height_*.h5`, periodic bilinear remapping, explicit poles,
+integer-Pa/log-pressure interpolation, a standard NetCDF intermediate and CDO
+GRIB2 encoding. It correctly retained Mjolnir `W` as geometric `m s-1`; it did
+not produce omega.
 
-This branch ports the reusable numerical behavior into modules, adds structural input classification, prevents native-grid and double transformations, adds strict physical omega modes, supplies native ecCodes GRIB writers and adds GRIB1-specific pressure safeguards. Existing generated data files were not copied into this branch. See [GRIB2_EXISTING_WORK.md](docs/GRIB2_EXISTING_WORK.md), [GRIB2_MIGRATION_MAP.md](docs/GRIB2_MIGRATION_MAP.md) and [PROVENANCE.md](docs/PROVENANCE.md).
+The integrated workflow ports the reusable numerical behavior into modules,
+adds structural input classification, prevents native-grid and double
+transformations, adds strict physical omega modes, supplies native ecCodes
+GRIB writers and adds GRIB1-specific pressure safeguards. Generated data files
+remain outside Git. See [GRIB2_EXISTING_WORK.md](docs/GRIB2_EXISTING_WORK.md),
+[GRIB2_MIGRATION_MAP.md](docs/GRIB2_MIGRATION_MAP.md) and
+[PROVENANCE.md](docs/PROVENANCE.md).
 
 ## Install
 
 ```bash
-cd /home/malkouka/THOR_POE_HOST/mjolnir_advance
-/usr/bin/python3 -m venv --system-site-packages .venv-fileconversions
-.venv-fileconversions/bin/pip install -r requirements-fileconversions.txt
-.venv-fileconversions/bin/pip install -e fileconversions
+cd /home/malkouka/THOR
+/usr/bin/python3 -m venv .venv-fileconversions
+.venv-fileconversions/bin/pip install -r mjolnir/fileconversions/requirements.txt
+.venv-fileconversions/bin/pip install -e mjolnir/fileconversions
 ```
 
 The local environment is ignored by Git. Detailed versions and missing optional validators are in [ENVIRONMENT.md](docs/ENVIRONMENT.md).
@@ -59,8 +71,8 @@ YAML files passed with `--config` provide defaults; explicit CLI arguments take 
 ## Inspect inputs first
 
 ```bash
-.venv-fileconversions/bin/python fileconversions/scripts/inspect_inputs.py \
-  --input-dir /home/malkouka/THOR_POE_HOST/venus_5_long_benchmark \
+.venv-fileconversions/bin/python mjolnir/fileconversions/scripts/inspect_inputs.py \
+  --input-dir /home/malkouka/THOR_conversion_data/inputs/venus_5_long_benchmark \
   --recursive \
   --report /tmp/hdf5_input_classification.csv
 ```
@@ -70,7 +82,7 @@ The HDF5 adapter accepts only `mjolnir_processed`. `native_icosahedral`, `metada
 ## Mjolnir-processed HDF5 → GRIB1
 
 ```bash
-.venv-fileconversions/bin/python fileconversions/scripts/hdf5_to_grib1.py \
+.venv-fileconversions/bin/python mjolnir/fileconversions/scripts/hdf5_to_grib1.py \
   --input /path/to/pgrid/regrid_venus_1.h5 \
   --input-kind mjolnir-processed \
   --output-dir /outside/repository/hdf5_to_grib1 \
@@ -98,7 +110,7 @@ This computes `omega = -rho*g*w` on collocated processed fields, using `Gravit=8
 
 ## Migrated HDF5 → GRIB2
 
-Use the same options with `fileconversions/scripts/hdf5_to_grib2.py`. Its default
+Use the same options with `mjolnir/fileconversions/scripts/hdf5_to_grib2.py`. Its default
 pressure policy is `source`, preserving the integer-Pa benchmark stack. This is
 the reference input for the GRIB2→GRIB1 adapter and does not silently preserve
 the old geometric `wz` product as omega.
@@ -106,7 +118,7 @@ the old geometric `wz` product as omega.
 ## GRIB2 → GRIB1
 
 ```bash
-.venv-fileconversions/bin/python fileconversions/scripts/grib2_to_grib1.py \
+.venv-fileconversions/bin/python mjolnir/fileconversions/scripts/grib2_to_grib1.py \
   --input-dir /outside/repository/grib2 \
   --output-dir /outside/repository/grib2_to_grib1 \
   --pressure-level-policy hpa-aligned \
@@ -124,7 +136,7 @@ parameters are `0/2/2`, `0/2/3` and `0/2/8`; geometric `0/2/9` is not relabelled
 ## NetCDF → GRIB1
 
 ```bash
-.venv-fileconversions/bin/python fileconversions/scripts/netcdf_to_grib1.py \
+.venv-fileconversions/bin/python mjolnir/fileconversions/scripts/netcdf_to_grib1.py \
   --input /path/to/input.nc \
   --output-dir /outside/repository/netcdf_to_grib1 \
   --variables u v omega \
@@ -160,12 +172,12 @@ For HDF5, `--time-index/--time-indices` select the source index encoded in `regr
 The default layout is `per-variable`; `per-time` and `combined` are also supported. Existing outputs are protected unless `--overwrite` is explicit. Every GRIB output has `<file>.metadata.json` with source files, planet parameters, grid, pressure levels, omega method, Git commit and pending review status.
 
 ```bash
-.venv-fileconversions/bin/python fileconversions/scripts/validate_grib.py \
+.venv-fileconversions/bin/python mjolnir/fileconversions/scripts/validate_grib.py \
   --input-dir /outside/repository/grib1 \
   --input-glob '*.grib1' --edition 1 \
   --report /outside/repository/validation_report.md
 
-.venv-fileconversions/bin/python fileconversions/scripts/compare_grib1_grib2.py \
+.venv-fileconversions/bin/python mjolnir/fileconversions/scripts/compare_grib1_grib2.py \
   --grib1-dir /outside/repository/grib1 \
   --grib2-dir /outside/repository/grib2 \
   --report /outside/repository/grib1_vs_grib2_parity.csv
@@ -177,7 +189,7 @@ Synthetic unit/integration coverage includes coordinates, pole conventions,
 dimension transposition, analytic log-pressure interpolation, Venus-gravity
 omega sign, HDF5/NetCDF/GRIB2 adapters, native times, round-trip and parity.
 Generated Venus5 products are under
-`/home/malkouka/THOR_POE_HOST/venus_5_fileconversions/` and are not committed.
+`/home/malkouka/THOR_conversion_data/outputs/venus_5_fileconversions/` and are not committed.
 
 The 36-test suite passes. Direct HDF5→GRIB1 and GRIB2→GRIB1 each produced 561
 real messages (3 fields × 11 times × 17 levels); the intermediate GRIB2 has 660
@@ -186,4 +198,4 @@ maximum absolute difference of `0.00162506104`.
 
 ## Reproducibility and review
 
-Run `python -m pytest -q fileconversions/tests`, inspect all CSV reports, then follow [REVIEW_CHECKLIST.md](docs/REVIEW_CHECKLIST.md). Scientific products remain unvalidated until Márkó completes the manual review. Known format and scientific limitations are in [GRIB1_LIMITATIONS.md](docs/GRIB1_LIMITATIONS.md) and [SCIENTIFIC_ASSUMPTIONS.md](docs/SCIENTIFIC_ASSUMPTIONS.md).
+Run `python -m pytest -q mjolnir/fileconversions/tests`, inspect all CSV reports, then follow [REVIEW_CHECKLIST.md](docs/REVIEW_CHECKLIST.md). Scientific products remain unvalidated until Márkó completes the manual review. Known format and scientific limitations are in [GRIB1_LIMITATIONS.md](docs/GRIB1_LIMITATIONS.md) and [SCIENTIFIC_ASSUMPTIONS.md](docs/SCIENTIFIC_ASSUMPTIONS.md).

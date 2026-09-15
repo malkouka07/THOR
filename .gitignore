@@ -4,6 +4,7 @@ build/*
 *.pyc
 *.py~
 *__pycache__/*
+*.egg-info/
 # editor temporary files
 *~
 *#
@@ -21,6 +22,17 @@ src/physics/managers/multi/obj/*
 src/physics/managers/multi/*.o
 # output data
 results*/
+/*_results/
+/init/
+/venus_long/
+
+# Local installers and environments
+/Miniconda3-*-Linux-*.sh
+
+# Generated initial-condition data (keep the reproducible .thr inputs tracked)
+/ic_special/*/*.h5
+/ic_special/*/config_copy.*
+/ifile/*_original.h5
 # profiling data
 profiling/*
 # compile command database
@@ -32,7 +44,7 @@ include/git-rev.h
 
 # Local environment and generated file-conversion products
 .venv-fileconversions/
-fileconversions/validation/*.grib*
-fileconversions/validation/*.grb*
-fileconversions/validation/*.nc
-fileconversions/validation/*.h5
+mjolnir/fileconversions/validation/*.grib*
+mjolnir/fileconversions/validation/*.grb*
+mjolnir/fileconversions/validation/*.nc
+mjolnir/fileconversions/validation/*.h5

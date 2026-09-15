@@ -3,7 +3,10 @@
 Generated with OpenAI Codex assistance
 Review status: pending manual review by Márkó
 
-The only complete prior GRIB2 conversion was located on `origin/replat`, commit `8fe5da7` (`Add RePLaT tools and last 100 Venus outputs`). The relevant files are:
+The only complete prior GRIB2 conversion is preserved in historical commit
+`8fe5da7` (`Add RePLaT tools and last 100 Venus outputs`). Its former `replat`
+branch has been retired after the reusable workflow was integrated into
+`mjolnir_advance`. The relevant historical files are:
 
 * `replat_conversion_last100_50591_50690/scripts/convert_thor_to_replat.py`;
 * `scripts/convert_standard_netcdf_to_grib2.sh`;

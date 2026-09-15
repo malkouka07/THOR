@@ -8,7 +8,7 @@ Review status: pending manual review by Márkó
 The generated products are outside the repository in:
 
 ```text
-/home/malkouka/THOR_POE_HOST/venus_5_fileconversions/
+/home/malkouka/THOR_conversion_data/outputs/venus_5_fileconversions/
 ├── direct_hdf5_to_grib1_hpa/   # preferred production path
 ├── hdf5_to_grib2_source/       # 20-level benchmark input
 ├── grib2_to_grib1_hpa/         # GRIB2 adapter benchmark
@@ -76,27 +76,27 @@ without density is skipped, never relabelled as omega.
 From the repository root, with `.venv-fileconversions` installed:
 
 ```bash
-.venv-fileconversions/bin/python fileconversions/scripts/hdf5_to_grib1.py \
-  --input-dir /home/malkouka/THOR_POE_HOST/venus_5_long_benchmark \
+.venv-fileconversions/bin/python mjolnir/fileconversions/scripts/hdf5_to_grib1.py \
+  --input-dir /home/malkouka/THOR_conversion_data/inputs/venus_5_long_benchmark \
   --processed-hdf5-pattern 'regrid_venus_*.h5' \
-  --output-dir /home/malkouka/THOR_POE_HOST/venus_5_fileconversions/direct_hdf5_to_grib1_hpa \
+  --output-dir /home/malkouka/THOR_conversion_data/outputs/venus_5_fileconversions/direct_hdf5_to_grib1_hpa \
   --variables u v omega --vertical-velocity-mode hydrostatic \
   --pressure-level-policy hpa-aligned --level-encoding strict \
   --lat-step 4 --lon-step 4 --file-layout per-variable --bits-per-value 24 \
   --overwrite
 
-.venv-fileconversions/bin/python fileconversions/scripts/hdf5_to_grib2.py \
-  --input-dir /home/malkouka/THOR_POE_HOST/venus_5_long_benchmark \
+.venv-fileconversions/bin/python mjolnir/fileconversions/scripts/hdf5_to_grib2.py \
+  --input-dir /home/malkouka/THOR_conversion_data/inputs/venus_5_long_benchmark \
   --processed-hdf5-pattern 'regrid_venus_*.h5' \
-  --output-dir /home/malkouka/THOR_POE_HOST/venus_5_fileconversions/hdf5_to_grib2_source \
+  --output-dir /home/malkouka/THOR_conversion_data/outputs/venus_5_fileconversions/hdf5_to_grib2_source \
   --variables u v omega --vertical-velocity-mode hydrostatic \
   --pressure-level-policy source --lat-step 4 --lon-step 4 \
   --file-layout per-variable --bits-per-value 24 --overwrite
 
-.venv-fileconversions/bin/python fileconversions/scripts/grib2_to_grib1.py \
-  --input-dir /home/malkouka/THOR_POE_HOST/venus_5_fileconversions/hdf5_to_grib2_source \
+.venv-fileconversions/bin/python mjolnir/fileconversions/scripts/grib2_to_grib1.py \
+  --input-dir /home/malkouka/THOR_conversion_data/outputs/venus_5_fileconversions/hdf5_to_grib2_source \
   --input-glob '*.grib2' \
-  --output-dir /home/malkouka/THOR_POE_HOST/venus_5_fileconversions/grib2_to_grib1_hpa \
+  --output-dir /home/malkouka/THOR_conversion_data/outputs/venus_5_fileconversions/grib2_to_grib1_hpa \
   --pressure-level-policy hpa-aligned --level-encoding strict \
   --file-layout per-variable --bits-per-value 24 --overwrite
 ```

@@ -1,5 +1,5 @@
 test_type,input,status,details
-unit,fileconversions/tests,passed,26 tests passed; one documented system NumPy binary-compatibility warning
+unit,mjolnir/fileconversions/tests,passed,26 tests passed; one documented system NumPy binary-compatibility warning
 synthetic_integration,canonical GRIB1 and GRIB2,passed,9 decoded parity messages; maximum absolute difference 0
 real_data_smoke,pgrid_0_10_1/regrid_venus_1.h5 → GRIB2,passed,60 u/v/hydrostatic-omega messages; ecCodes and CDO reopen; canonical round-trip max abs 1.9073486328125e-06
 real_data_smoke,pgrid_0_10_1/regrid_venus_1.h5 → GRIB1,blocked by unsupported GRIB1 pressure level,strict stopped at 99578 Pa; mapping report written; no partial GRIB1

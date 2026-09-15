@@ -24,4 +24,4 @@ as the direct HDF5→GRIB1 route. Direct and adapter-derived GRIB1 each contain
 561 messages. All comparisons pass at `0.002`; maximum absolute difference is
 `0.00162506104`. The nonzero difference includes the GRIB2 route's extra
 source-float→integer-Pa interpolation and packing. Products are outside Git at
-`/home/malkouka/THOR_POE_HOST/venus_5_fileconversions/`.
+`/home/malkouka/THOR_conversion_data/outputs/venus_5_fileconversions/`.

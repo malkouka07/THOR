@@ -52,7 +52,7 @@ def eccodes_module():
         import eccodes
     except ImportError as exc:
         raise ConversionError(
-            "Python eccodes is required. Install requirements-fileconversions.txt."
+            "Python eccodes is required. Install mjolnir/fileconversions/requirements.txt."
         ) from exc
     return eccodes
 

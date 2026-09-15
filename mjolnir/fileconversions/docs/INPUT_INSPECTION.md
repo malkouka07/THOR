@@ -3,7 +3,7 @@
 Generated with OpenAI Codex assistance
 Review status: pending manual review by Márkó
 
-The requested `/home/malkouka/THOR_POE_HOST/venus_5_long_results` was not present in this workspace. The available read-only representative set is `/home/malkouka/THOR_POE_HOST/venus_5_long_benchmark`, with indices 0–10.
+The requested `/home/malkouka/THOR_POE_HOST/venus_5_long_results` was not present in this workspace. The available read-only representative set is `/home/malkouka/THOR_conversion_data/inputs/venus_5_long_benchmark`, with indices 0–10.
 
 The committed inventory `validation/hdf5_input_classification.csv` records every HDF5 file. Summary:
 
